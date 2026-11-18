@@ -1,4 +1,5 @@
 import type { Entry, EntryType } from '../types'
+import type { Op, SendResult } from './outbox'
 import { supabase } from './supabase'
 
 export interface Household {
@@ -72,8 +73,17 @@ export function fromRow(row: EntryRow): Entry {
   return entry
 }
 
-function check<T>({ data, error }: { data: T; error: { message: string } | null }): T {
-  if (error) throw new Error(error.message)
+/** Thrown for a failed query; `status` is 0 when the network is down. */
+export class DbError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+function check<T>({ data, error, status }: { data: T; error: { message: string } | null; status?: number }): T {
+  if (error) throw new DbError(error.message, status ?? 0)
   return data
 }
 
@@ -128,4 +138,13 @@ export async function deleteEntry(id: string) {
 
 export async function deleteAllEntries(householdId: string) {
   check(await supabase.from('entries').delete().eq('household_id', householdId))
+}
+
+/** Sends one queued change; the HTTP status lets the outbox tell "offline, retry" from "refused". */
+export async function sendOp(op: Op, householdId: string): Promise<SendResult> {
+  const { error, status } =
+    op.type === 'upsert'
+      ? await supabase.from('entries').upsert(toRow(op.entry, householdId))
+      : await supabase.from('entries').delete().eq('id', op.id)
+  return { error, status }
 }

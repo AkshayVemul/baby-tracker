@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Household } from '../lib/db'
 import { sampleEntries } from '../lib/sample'
-import { clearLocalEntries, loadLocalEntries } from '../lib/storage'
+import { clearLocalEntries, clearOfflineData, loadLocalEntries } from '../lib/storage'
 import { supabase } from '../lib/supabase'
 import { toDateInput } from '../lib/time'
 import { download, fromBackup, toBackup, toCsv } from '../lib/transfer'
@@ -19,6 +19,8 @@ interface Props {
     replaceAll: (entries: Entry[]) => Promise<void>
     add: (entries: Entry[]) => Promise<void>
   }
+  /** Changes saved on this phone that haven't reached Supabase yet. */
+  pending: number
   onOpenToday: () => void
 }
 
@@ -49,7 +51,7 @@ function Select<K extends keyof Settings>({
   )
 }
 
-export function SettingsView({ entries, settings, household, email, now, onSettings, bulk, onOpenToday }: Props) {
+export function SettingsView({ entries, settings, household, email, now, onSettings, bulk, pending, onOpenToday }: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
@@ -100,6 +102,13 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
   const clearAll = () => {
     if (!window.confirm(`Delete all ${entries.length} entries for everyone in the household? This can’t be undone — export a backup first if unsure.`)) return
     run(() => bulk.replaceAll([]), 'All entries deleted.')
+  }
+
+  const signOut = () => {
+    if (pending > 0 && !window.confirm(`${pending} ${pending === 1 ? 'change hasn’t' : 'changes haven’t'} synced yet and will be lost if you sign out. Sign out anyway?`)) return
+    // Signing out removes this phone's offline copy of the household's logs.
+    clearOfflineData()
+    supabase.auth.signOut()
   }
 
   const changePassword = () =>
@@ -173,7 +182,10 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
 
       <section className="card form" aria-labelledby="data">
         <h3 id="data">Data</h3>
-        <p className="muted small">{entries.length} entries in the household, stored in Supabase.</p>
+        <p className="muted small">
+          {entries.length} entries in the household, stored in Supabase with a copy on this phone for offline use.
+          {pending > 0 && ` ${pending} ${pending === 1 ? 'change is' : 'changes are'} waiting to sync.`}
+        </p>
         <div className="row wrap">
           <button className="btn" onClick={() => download(`baby-tracker-${stamp}.json`, toBackup(entries, settings), 'application/json')}>
             <Icon name="download" /> Backup (JSON)
@@ -213,7 +225,7 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
             Change
           </button>
         </div>
-        <button className="btn" onClick={() => supabase.auth.signOut()}>
+        <button className="btn" onClick={signOut}>
           Sign out
         </button>
       </section>

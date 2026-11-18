@@ -1109,3 +1109,27 @@ code {
   letter-spacing: 0.15em;
   text-align: center;
 }
+
+/* ---------- Sync status ---------- */
+
+.sync-status {
+  margin-top: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.sync-status::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--s-dirty);
+  vertical-align: 1px;
+}
+
+.sync-status.offline::before {
+  background: var(--muted);
+}

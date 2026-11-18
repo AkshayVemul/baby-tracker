@@ -41,6 +41,15 @@ pnpm build    # type-check + production build
 - **Settings** — baby's name and birth date (shows age), ml/oz, kg/lb, cm/in, °C/°F, JSON backup/restore,
   CSV export, sample data, delete all.
 
+## Offline
+
+Logging works with no signal. Every change is shown at once, saved in this phone's `localStorage` outbox, and sent
+to Supabase when the connection is back (immediately, when the app comes back online or to the foreground, and
+every 30 seconds while anything is waiting). The header shows "Offline" or how many changes are waiting. The app
+also keeps a copy of the household's entries, the household and the sign-in session, so it opens offline, and
+`public/sw.js` caches the app files after the first visit. Restore, sample data and delete-all still need a
+connection. Signing out clears this phone's copies (with a warning if changes haven't synced).
+
 ## How it fits together
 
 - `src/types.ts` — the single flat `Entry` shape every log type uses (metric units, epoch ms).
@@ -49,6 +58,7 @@ pnpm build    # type-check + production build
   7am/7pm for night vs naps). Unit-tested.
 - `supabase/migrations/0001_init.sql` — tables (`households`, `household_members`, `entries`), RLS policies,
   `create_household` / `join_household` functions, realtime publication.
+- `src/lib/outbox.ts` + `src/hooks/useEntries.ts` — the offline queue (unit-tested) and the offline-first entries state with Realtime.
 - `src/lib/db.ts` — Supabase queries and the `Entry` ↔ row mapping (unit-tested). `src/Root.tsx` routes between
   setup, sign-in, household setup and the app; `App.tsx` applies changes optimistically and subscribes to Realtime.
 - `src/lib/storage.ts`, `transfer.ts`, `sample.ts`, `units.ts` — device preferences, backup/CSV, demo data, unit

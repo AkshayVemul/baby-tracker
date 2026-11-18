@@ -6,20 +6,11 @@ import { Icon, type IconName } from './components/Icon'
 import { SettingsView } from './components/SettingsView'
 import { TodayView } from './components/TodayView'
 import { useBackToClose, useHashRoute } from './hooks/useHashRoute'
+import { useEntries } from './hooks/useEntries'
 import { useNow } from './hooks/useNow'
-import {
-  deleteAllEntries,
-  deleteEntry,
-  fetchEntries,
-  fromRow,
-  saveEntries,
-  updateHousehold,
-  type EntryRow,
-  type Household,
-} from './lib/db'
+import { updateHousehold, type Household } from './lib/db'
 import { isRunning, newEntry } from './lib/entries'
 import { loadSettings, newId, saveSettings } from './lib/storage'
-import { supabase } from './lib/supabase'
 import { formatAge } from './lib/time'
 import type { Actions, Entry, Settings } from './types'
 
@@ -46,23 +37,15 @@ interface Props {
   onHousehold: (household: Household) => void
 }
 
-/** Adds or replaces entries by id. */
-function merge(prev: Entry[], incoming: Entry[]): Entry[] {
-  const byId = new Map(prev.map((e) => [e.id, e]))
-  for (const e of incoming) byId.set(e.id, e)
-  return [...byId.values()]
-}
-
 export default function App({ household, email, onHousehold }: Props) {
   const householdId = household.id
-  // `null` until the first load from Supabase finishes.
-  const [entries, setEntries] = useState<Entry[] | null>(null)
-  // Units stay per device; the baby's name and birth date live on the shared household.
   const [units, setUnits] = useState(loadSettings)
   const [tab, setTab] = useHashRoute(ROUTES, 'today')
   const [draft, setDraft] = useState<{ entry: Entry; isNew: boolean } | null>(null)
   const closeDraft = useBackToClose(draft !== null, useCallback(() => setDraft(null), []))
   const [toast, setToast] = useState<Toast | null>(null)
+  const notify = useCallback((message: string) => setToast({ id: Date.now(), message }), [])
+  const { entries, pending, online, save, drop, replaceAll, add } = useEntries(householdId, onHousehold, notify)
   const list = entries ?? []
   // Tick every second while a timer runs; otherwise often enough for "5m ago" labels.
   const now = useNow(list.some(isRunning) ? 1000 : 30_000)
@@ -83,61 +66,7 @@ export default function App({ household, email, onHousehold }: Props) {
     return () => clearTimeout(id)
   }, [toast])
 
-  // Load everything, then stay in sync with the other members through Supabase Realtime.
-  // Refetch when the app comes back to the foreground, in case the socket missed changes while asleep.
-  useEffect(() => {
-    let cancelled = false
-    const load = () =>
-      fetchEntries(householdId)
-        .then((loaded) => !cancelled && setEntries(loaded))
-        .catch((e: Error) => !cancelled && setToast({ id: Date.now(), message: `Couldn’t load: ${e.message}` }))
-    load()
-    const onVisible = () => document.visibilityState === 'visible' && load()
-    document.addEventListener('visibilitychange', onVisible)
-
-    const channel = supabase
-      .channel(`household:${householdId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'entries', filter: `household_id=eq.${householdId}` },
-        (payload) => {
-          if (payload.eventType === 'DELETE') return
-          setEntries((prev) => prev && merge(prev, [fromRow(payload.new as EntryRow)]))
-        },
-      )
-      // Deletes can't be filtered server-side; removing an id we don't have is a no-op.
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'entries' }, (payload) => {
-        const id = (payload.old as Partial<EntryRow>).id
-        setEntries((prev) => prev && prev.filter((e) => e.id !== id))
-      })
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'households', filter: `id=eq.${householdId}` },
-        (payload) => onHousehold(payload.new as Household),
-      )
-      .subscribe()
-
-    return () => {
-      cancelled = true
-      document.removeEventListener('visibilitychange', onVisible)
-      supabase.removeChannel(channel)
-    }
-  }, [householdId, onHousehold])
-
   const actions = useMemo<Actions>(() => {
-    // Changes show immediately; if Supabase rejects one, say so and reload the truth.
-    const fail = (e: Error) => {
-      setToast({ id: Date.now(), message: `Couldn’t sync: ${e.message}` })
-      fetchEntries(householdId).then(setEntries).catch(() => {})
-    }
-    const save = (entry: Entry) => {
-      setEntries((prev) => merge(prev ?? [], [entry]))
-      saveEntries([entry], householdId).catch(fail)
-    }
-    const drop = (id: string) => {
-      setEntries((prev) => prev && prev.filter((e) => e.id !== id))
-      deleteEntry(id).catch(fail)
-    }
     return {
       save,
       remove: (entry) => {
@@ -153,7 +82,7 @@ export default function App({ household, email, onHousehold }: Props) {
       edit: (entry) => setDraft({ entry, isNew: false }),
       create: (type, overrides) => setDraft({ entry: newEntry(type, Date.now(), overrides), isNew: true }),
     }
-  }, [householdId])
+  }, [save, drop])
 
   const changeSettings = (next: Settings) => {
     setUnits(next)
@@ -166,19 +95,6 @@ export default function App({ household, email, onHousehold }: Props) {
     }
   }
 
-  /** Bulk changes from Settings: restore, sample data, delete all, upload this device's old entries. */
-  const bulk = {
-    replaceAll: async (next: Entry[]) => {
-      setEntries(next)
-      await deleteAllEntries(householdId)
-      await saveEntries(next, householdId)
-    },
-    add: async (more: Entry[]) => {
-      setEntries((prev) => merge(prev ?? [], more))
-      await saveEntries(more, householdId)
-    },
-  }
-
   const age = formatAge(settings.birthDate, now)
 
   return (
@@ -187,6 +103,12 @@ export default function App({ household, email, onHousehold }: Props) {
         <div>
           <h1>{settings.babyName ? `${settings.babyName}` : 'Baby Tracker'}</h1>
           {age ? <p className="muted">{age}</p> : <p className="muted">Sleep, feeds, diapers and more</p>}
+          {(!online || pending > 0) && (
+            <p className={online ? 'sync-status' : 'sync-status offline'} role="status">
+              {online ? 'Syncing' : 'Offline'}
+              {pending > 0 ? ` · ${pending} ${pending === 1 ? 'change' : 'changes'} saved on this phone` : ' · logs save on this phone'}
+            </p>
+          )}
         </div>
         <button className="btn primary" onClick={() => actions.create('feed')}>
           <Icon name="plus" /> Log
@@ -213,7 +135,8 @@ export default function App({ household, email, onHousehold }: Props) {
             email={email}
             now={now}
             onSettings={changeSettings}
-            bulk={bulk}
+            bulk={{ replaceAll, add }}
+            pending={pending}
             onOpenToday={() => setTab('today')}
           />
         )}
