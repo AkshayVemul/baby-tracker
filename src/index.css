@@ -1173,3 +1173,31 @@ code {
 .list li:has(> .gap-row) {
   padding: 4px 0;
 }
+
+/* ---------- Next feed ---------- */
+
+.next-feed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.next-feed .grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.next-feed.overdue {
+  border-color: var(--danger);
+}
+
+.next-feed.overdue .grow .small {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.next-feed.overdue .grow .small .muted {
+  font-weight: 400;
+}

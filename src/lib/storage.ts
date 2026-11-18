@@ -12,6 +12,8 @@ export const defaultSettings: Settings = {
   length: 'cm',
   temp: 'C',
   timeFormat: '12h',
+  feedIntervalMin: 180,
+  feedIntervalFrom: 'start',
 }
 
 export function newId(): string {

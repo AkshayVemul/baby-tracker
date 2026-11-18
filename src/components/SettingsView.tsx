@@ -3,7 +3,7 @@ import type { Household } from '../lib/db'
 import { sampleEntries } from '../lib/sample'
 import { clearLocalEntries, clearOfflineData, loadLocalEntries } from '../lib/storage'
 import { supabase } from '../lib/supabase'
-import { toDateInput } from '../lib/time'
+import { formatDuration, MINUTE, toDateInput } from '../lib/time'
 import { download, fromBackup, toBackup, toCsv } from '../lib/transfer'
 import type { Entry, Settings } from '../types'
 import { Icon } from './Icon'
@@ -23,6 +23,9 @@ interface Props {
   pending: number
   onOpenToday: () => void
 }
+
+/** 1h to 6h in 15-minute steps. */
+const INTERVALS = Array.from({ length: 21 }, (_, i) => 60 + i * 15)
 
 function Select<K extends keyof Settings>({
   label,
@@ -177,6 +180,38 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
           <Select label="Length" field="length" options={[['cm', 'Centimetres (cm)'], ['in', 'Inches (in)']]} settings={settings} onSettings={onSettings} />
           <Select label="Temperature" field="temp" options={[['C', 'Celsius (°C)'], ['F', 'Fahrenheit (°F)']]} settings={settings} onSettings={onSettings} />
           <Select label="Time format" field="timeFormat" options={[['12h', '12-hour (9:05 PM)'], ['24h', '24-hour (21:05)']]} settings={settings} onSettings={onSettings} />
+        </div>
+      </section>
+
+      <section className="card form" aria-labelledby="feeding">
+        <h3 id="feeding">Feed interval on this device</h3>
+        <p className="muted small">Shows when the next feed is due on the Today screen.</p>
+        <div className="grid-2">
+          <label className="field">
+            <span>Feed every</span>
+            <select
+              value={settings.feedIntervalMin}
+              onChange={(e) => onSettings({ ...settings, feedIntervalMin: Number(e.target.value) })}
+            >
+              <option value={0}>Off</option>
+              {INTERVALS.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {formatDuration(minutes * MINUTE)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Counted from</span>
+            <select
+              value={settings.feedIntervalFrom}
+              disabled={settings.feedIntervalMin === 0}
+              onChange={(e) => onSettings({ ...settings, feedIntervalFrom: e.target.value as Settings['feedIntervalFrom'] })}
+            >
+              <option value="start">Start of last feed</option>
+              <option value="end">End of last feed</option>
+            </select>
+          </label>
         </div>
       </section>
 

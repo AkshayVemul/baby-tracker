@@ -33,7 +33,11 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
       parts.push(kindLabel(entry))
       break
     case 'pump':
-      parts.push(side, entry.amountMl !== undefined ? formatMeasure('volume', entry.amountMl, settings) : undefined)
+      parts.push(
+        side,
+        entry.amountMl !== undefined ? formatMeasure('volume', entry.amountMl, settings) : undefined,
+        entry.end !== undefined ? formatDuration(durationMs(entry, now)) : undefined,
+      )
       break
     case 'growth':
       if (entry.weightKg !== undefined) parts.push(formatMeasure('weight', entry.weightKg, settings))

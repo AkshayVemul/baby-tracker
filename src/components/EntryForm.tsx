@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { defaultKind, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
+import { defaultKind, hasEndTime, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
 import { formatDuration, fromLocalInput, MINUTE, toLocalInput } from '../lib/time'
 import { units, type Measure } from '../lib/units'
 import type { Entry, EntryType, Settings } from '../types'
@@ -55,7 +55,9 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
   }, [])
 
   const config = TYPES[type]
-  const timed = isTimed({ type, kind })
+  // Start/End fields: sleep, breastfeeding, activities and pumping. Only the first three can run as a timer.
+  const timed = hasEndTime({ type, kind })
+  const runsAsTimer = isTimed({ type, kind })
   const show = {
     side: (type === 'feed' && kind === 'breast') || type === 'pump',
     amount: (type === 'feed' && kind === 'bottle') || type === 'pump',
@@ -213,7 +215,9 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
           <p className="muted small">
             {duration !== null && duration >= 0
               ? `Duration ${formatDuration(duration)}`
-              : 'Leave the end empty to keep the timer running.'}
+              : runsAsTimer
+                ? 'Leave the end empty to keep the timer running.'
+                : 'End time is optional.'}
           </p>
         )}
 

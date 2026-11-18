@@ -1,5 +1,5 @@
 import { describe } from '../lib/describe'
-import { isRunning, isTimed, TYPES } from '../lib/entries'
+import { hasEndTime, isRunning, TYPES } from '../lib/entries'
 import { formatTime } from '../lib/time'
 import type { Entry, Settings } from '../types'
 
@@ -15,7 +15,7 @@ export function EntryRow({ entry, settings, now, onOpen }: Props) {
   const detail = describe(entry, settings, now)
   const running = isRunning(entry)
   const time =
-    isTimed(entry) && entry.end !== undefined
+    hasEndTime(entry) && entry.end !== undefined
       ? `${formatTime(entry.start, settings.timeFormat)} – ${formatTime(entry.end, settings.timeFormat)}`
       : formatTime(entry.start, settings.timeFormat)
 

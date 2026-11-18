@@ -44,6 +44,10 @@ export interface Settings {
   length: LengthUnit
   temp: TempUnit
   timeFormat: TimeFormat
+  /** Minutes between feeds for the "Next feed" line on Today; 0 turns it off. */
+  feedIntervalMin: number
+  /** Count the interval from the start or the end of the last feed. */
+  feedIntervalFrom: 'start' | 'end'
 }
 
 /** What screens can do to the log; implemented once in App. */

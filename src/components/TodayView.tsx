@@ -2,8 +2,9 @@ import { useState, type ReactNode } from 'react'
 import { describe } from '../lib/describe'
 import { isRunning, kindLabel, sortNewestFirst, TYPE_ORDER, TYPES } from '../lib/entries'
 import { sleepGaps } from '../lib/gaps'
+import { nextFeedDue } from '../lib/nextFeed'
 import { dailyStats, latest } from '../lib/stats'
-import { formatAgo, formatClock, formatDuration, formatTime, startOfDay } from '../lib/time'
+import { formatAgo, formatClock, formatDuration, formatTime, MINUTE, startOfDay } from '../lib/time'
 import { formatMeasure } from '../lib/units'
 import type { Actions, Entry, Settings } from '../types'
 import { EntryList } from './EntryList'
@@ -35,6 +36,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
   const lastDiaper = latest(entries, (e) => e.type === 'diaper')
   const lastSleep = latest(entries, (e) => e.type === 'sleep' && e.end !== undefined)
 
+  const next = nextFeedDue(entries, settings)
   const today = startOfDay(now)
   const [stats] = dailyStats(entries, [today], now)
   const todays = sortNewestFirst(entries.filter((e) => e.start >= today || isRunning(e)))
@@ -76,6 +78,26 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           {!sleep && lastSleep?.end && <span className="muted small">woke {formatTime(lastSleep.end, settings.timeFormat)}</span>}
         </div>
       </section>
+
+      {next && (
+        <section className={next.due <= now ? 'card next-feed overdue' : 'card next-feed'} aria-label="Next feed">
+          <span className="badge" style={{ background: TYPES.feed.color }} aria-hidden="true">
+            🍼
+          </span>
+          <div className="grow">
+            <strong>Next feed {formatTime(next.due, settings.timeFormat)}</strong>
+            <span className="small">
+              {next.due <= now ? `Overdue by ${formatDuration(now - next.due)}` : `In ${formatDuration(next.due - now)}`}
+              <span className="muted">
+                {' '}· every {formatDuration(settings.feedIntervalMin * MINUTE)} from the {settings.feedIntervalFrom} of the last feed
+              </span>
+            </span>
+          </div>
+          <a className="btn ghost small" href="#/settings">
+            Change
+          </a>
+        </section>
+      )}
 
       <section className="timers" aria-label="Timers">
         <TimerCard

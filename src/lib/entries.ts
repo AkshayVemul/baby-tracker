@@ -86,7 +86,7 @@ export function kindLabel(entry: Entry): string | undefined {
   return TYPES[entry.type].kinds?.find((k) => k.value === entry.kind)?.label
 }
 
-/** Entries that have a start and an end: sleep, breastfeeding, activities. */
+/** Entries that run as a timer: sleep, breastfeeding, activities. No end yet means the timer is running. */
 export function isTimed(entry: Pick<Entry, 'type' | 'kind'>): boolean {
   return (
     entry.type === 'sleep' ||
@@ -95,14 +95,23 @@ export function isTimed(entry: Pick<Entry, 'type' | 'kind'>): boolean {
   )
 }
 
+/**
+ * Entries the form asks an end time for: the timed ones, plus pumping, whose end is optional and never
+ * runs as a timer (older pump logs have no end).
+ */
+export function hasEndTime(entry: Pick<Entry, 'type' | 'kind'>): boolean {
+  return isTimed(entry) || entry.type === 'pump'
+}
+
 export function isRunning(entry: Entry): boolean {
   return isTimed(entry) && entry.end === undefined
 }
 
-/** Duration in ms; a running timer counts up to `now`. */
+/** Duration in ms; a running timer counts up to `now`. An entry without an end time has none. */
 export function durationMs(entry: Entry, now: number): number {
-  if (!isTimed(entry)) return 0
-  return Math.max(0, (entry.end ?? now) - entry.start)
+  if (isRunning(entry)) return Math.max(0, now - entry.start)
+  if (!hasEndTime(entry) || entry.end === undefined) return 0
+  return Math.max(0, entry.end - entry.start)
 }
 
 /** Same start time: whatever ends later is listed first, e.g. a sleep that begins at a bottle's time sits above it. */
@@ -127,10 +136,10 @@ export function searchText(entry: Entry): string {
     .toLowerCase()
 }
 
-/** A fresh entry for the "add" form; timed types default to a just-finished session. */
+/** A fresh entry for the "add" form; types with an end time default to a just-finished session. */
 export function newEntry(type: EntryType, now: number, overrides: Partial<Entry> = {}): Entry {
   const entry: Entry = { id: crypto.randomUUID(), type, kind: defaultKind(type), start: now, ...overrides }
-  if (isTimed(entry) && !('end' in overrides) && !('start' in overrides)) {
+  if (hasEndTime(entry) && !('end' in overrides) && !('start' in overrides)) {
     entry.start = now - (type === 'sleep' ? 60 : 15) * 60_000
     entry.end = now
   }
