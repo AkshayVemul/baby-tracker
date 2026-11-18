@@ -6,8 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Baby Tracker</title>
     <meta name="description" content="Track sleep, feeds, diapers and growth with timers and charts. Data stays on your device." />
-    <meta name="theme-color" content="#f6f4f1" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f4f1" />
+    <script>
+      // Pick light or dark before the first paint so there's no flash. Kept in sync with src/lib/theme.ts.
+      try {
+        var theme = (JSON.parse(localStorage.getItem('baby-tracker.settings.v1') || '{}').theme) || 'system'
+        var dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        document.querySelector('meta[name=theme-color]').content = dark ? '#141413' : '#f6f4f1'
+      } catch (e) {}
+    </script>
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="mobile-web-app-capable" content="yes" />

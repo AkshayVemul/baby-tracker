@@ -12,6 +12,7 @@ export const defaultSettings: Settings = {
   length: 'cm',
   temp: 'C',
   timeFormat: '12h',
+  theme: 'system',
   feedIntervalMin: 180,
   feedIntervalFrom: 'start',
 }

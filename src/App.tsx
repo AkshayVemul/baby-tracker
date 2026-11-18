@@ -8,9 +8,10 @@ import { TodayView } from './components/TodayView'
 import { useBackToClose, useHashRoute } from './hooks/useHashRoute'
 import { useEntries } from './hooks/useEntries'
 import { useNow } from './hooks/useNow'
-import { updateHousehold, type Household } from './lib/db'
+import { updateHousehold, type Household, type HouseholdChanges } from './lib/db'
 import { isRunning, newEntry } from './lib/entries'
 import { loadSettings, newId, saveSettings } from './lib/storage'
+import { applyTheme, followSystemTheme } from './lib/theme'
 import { formatAge } from './lib/time'
 import type { Actions, Entry, Settings } from './types'
 
@@ -50,11 +51,23 @@ export default function App({ household, email, onHousehold }: Props) {
   // Tick every second while a timer runs; otherwise often enough for "5m ago" labels.
   const now = useNow(list.some(isRunning) ? 1000 : 30_000)
 
-  const settings: Settings = { ...units, babyName: household.baby_name, birthDate: household.birth_date ?? '' }
+  // Units and time format are per device; the baby's details and the feed interval are shared by the household.
+  // `??` covers a household cached on this phone before the interval moved to it.
+  const settings: Settings = {
+    ...units,
+    babyName: household.baby_name,
+    birthDate: household.birth_date ?? '',
+    feedIntervalMin: household.feed_interval_min ?? units.feedIntervalMin,
+    feedIntervalFrom: household.feed_interval_from ?? units.feedIntervalFrom,
+  }
 
   useEffect(() => {
     saveSettings(units)
   }, [units])
+  useEffect(() => {
+    applyTheme(units.theme)
+    return followSystemTheme(() => units.theme)
+  }, [units.theme])
   // Block body on purpose: newer browsers return a Promise from scrollTo, which React would treat as a cleanup.
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -86,10 +99,18 @@ export default function App({ household, email, onHousehold }: Props) {
 
   const changeSettings = (next: Settings) => {
     setUnits(next)
-    const birthDate = next.birthDate || null
-    if (next.babyName !== household.baby_name || birthDate !== household.birth_date) {
-      onHousehold({ ...household, baby_name: next.babyName, birth_date: birthDate })
-      updateHousehold(householdId, { baby_name: next.babyName, birth_date: birthDate }).catch((e: Error) =>
+    const shared: HouseholdChanges = {
+      baby_name: next.babyName,
+      birth_date: next.birthDate || null,
+      feed_interval_min: next.feedIntervalMin,
+      feed_interval_from: next.feedIntervalFrom,
+    }
+    const changed = Object.fromEntries(
+      Object.entries(shared).filter(([key, value]) => household[key as keyof HouseholdChanges] !== value),
+    ) as HouseholdChanges
+    if (Object.keys(changed).length > 0) {
+      onHousehold({ ...household, ...changed })
+      updateHousehold(householdId, changed).catch((e: Error) =>
         setToast({ id: Date.now(), message: `Couldn’t save: ${e.message}` }),
       )
     }

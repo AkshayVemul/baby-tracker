@@ -12,6 +12,10 @@ export interface Entry {
   start: number
   /** Epoch ms. Missing on a timed entry means its timer is still running. */
   end?: number
+  /** Breastfeeding/pumping: time not spent feeding (pauses, unlatching), taken off the duration. Ms. */
+  pausedMs?: number
+  /** Epoch ms. Set while a running timer is paused: when the current pause began. */
+  pausedAt?: number
   /** Sub-type: feed breast/bottle/solids, diaper wet/dirty/mixed/dry, health temperature/medicine… */
   kind?: string
   side?: 'left' | 'right' | 'both'
@@ -34,6 +38,7 @@ export type WeightUnit = 'kg' | 'lb'
 export type LengthUnit = 'cm' | 'in'
 export type TempUnit = 'C' | 'F'
 export type TimeFormat = '12h' | '24h'
+export type Theme = 'system' | 'light' | 'dark'
 
 export interface Settings {
   babyName: string
@@ -44,6 +49,8 @@ export interface Settings {
   length: LengthUnit
   temp: TempUnit
   timeFormat: TimeFormat
+  /** Per device. */
+  theme: Theme
   /** Minutes between feeds for the "Next feed" line on Today; 0 turns it off. */
   feedIntervalMin: number
   /** Count the interval from the start or the end of the last feed. */

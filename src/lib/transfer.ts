@@ -1,5 +1,5 @@
 import type { Entry, Settings } from '../types'
-import { TYPES } from './entries'
+import { durationMs, TYPES } from './entries'
 
 interface Backup {
   app: 'baby-tracker'
@@ -33,7 +33,7 @@ export function fromBackup(text: string): { entries: Entry[]; settings?: Setting
 }
 
 const CSV_COLUMNS = [
-  'type', 'kind', 'start', 'end', 'durationMin', 'side', 'amountMl', 'milk', 'food',
+  'type', 'kind', 'start', 'end', 'durationMin', 'breakMin', 'side', 'amountMl', 'milk', 'food',
   'weightKg', 'heightCm', 'headCm', 'tempC', 'medicine', 'dose', 'notes',
 ] as const
 
@@ -52,7 +52,8 @@ export function toCsv(entries: Entry[]): string {
       CSV_COLUMNS.map((col) => {
         if (col === 'start') return csvCell(iso(e.start))
         if (col === 'end') return csvCell(iso(e.end))
-        if (col === 'durationMin') return csvCell(e.end === undefined ? undefined : Math.round((e.end - e.start) / 60000))
+        if (col === 'durationMin') return csvCell(e.end === undefined ? undefined : Math.round(durationMs(e, e.end) / 60000))
+        if (col === 'breakMin') return csvCell(e.pausedMs ? Math.round(e.pausedMs / 60000) : undefined)
         return csvCell(e[col])
       }).join(','),
     )

@@ -6,14 +6,14 @@ the baby's household with an invite code; entries sync live between phones.
 
 ## Supabase setup
 
-1. In the Supabase dashboard, open **SQL Editor**, paste `supabase/migrations/0001_init.sql` and run it.
+1. Create the tables: add `SUPABASE_DB_URL` to `.env.local` (see `.env.example`) and run `pnpm db:migrate`.
 2. **Authentication → URL Configuration**: set the Site URL to where the app runs (e.g. `http://localhost:5190`
    for now, your GitHub Pages URL later) and add both under Redirect URLs. Confirmation and password-reset emails
    link there.
 3. Copy `.env.example` to `.env.local` and fill in the project URL and **publishable** (or legacy anon) key from
    **Project Settings → API**. Never use the secret/service_role key in this app.
 4. For GitHub Pages, add the same two values as repository **variables** (`VITE_SUPABASE_URL`,
-   `VITE_SUPABASE_PUBLISHABLE_KEY`).
+   `VITE_SUPABASE_PUBLISHABLE_KEY`), and `SUPABASE_DB_URL` as a repository **secret** for migrations.
 
 Row level security limits every table to members of the household, so the publishable key in the browser can't
 read anyone else's data. Unit preferences (ml/oz etc.) stay per device in `localStorage`.
@@ -40,6 +40,15 @@ pnpm build    # type-check + production build
   chart has hover/tap tooltips and a table view.
 - **Settings** — baby's name and birth date (shows age), ml/oz, kg/lb, cm/in, °C/°F, JSON backup/restore,
   CSV export, sample data, delete all.
+
+## Database changes
+
+Schema changes live in `supabase/migrations/` as numbered SQL files. `pnpm db:migrate` applies the ones the
+database hasn't had yet, in order, each in its own transaction, and records them in `migrations.applied`.
+`pnpm db:migrate --status` lists applied and pending files without changing anything. To change the schema, add
+the next file (e.g. `0003_something.sql`). Pushing to `main` runs it in CI after the build and before the deploy
+(needs the `SUPABASE_DB_URL` repository **secret**, the Session pooler URI), so a failed migration stops the deploy.
+Migrations must only add things: the old site keeps running against the new schema until the deploy finishes.
 
 ## Offline
 

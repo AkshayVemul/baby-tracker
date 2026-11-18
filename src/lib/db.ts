@@ -8,7 +8,13 @@ export interface Household {
   /** yyyy-mm-dd or null */
   birth_date: string | null
   invite_code: string
+  /** Shared by all members: minutes between feeds for "Next feed" (0 = off), counted from start or end. */
+  feed_interval_min: number
+  feed_interval_from: 'start' | 'end'
 }
+
+/** Household fields members edit from Settings. */
+export type HouseholdChanges = Partial<Pick<Household, 'baby_name' | 'birth_date' | 'feed_interval_min' | 'feed_interval_from'>>
 
 /** A row of `public.entries`; nullable columns are the optional Entry fields. */
 export interface EntryRow {
@@ -17,6 +23,8 @@ export interface EntryRow {
   type: EntryType
   start_at: string
   end_at: string | null
+  paused_ms: number | null
+  paused_at: string | null
   kind: string | null
   side: Entry['side'] | null
   amount_ml: number | null
@@ -36,6 +44,7 @@ const PAGE = 1000
 /** Entry fields that map one-to-one onto a snake_case column. */
 const FIELDS = {
   kind: 'kind',
+  pausedMs: 'paused_ms',
   side: 'side',
   amountMl: 'amount_ml',
   milk: 'milk',
@@ -56,6 +65,7 @@ export function toRow(entry: Entry, householdId: string): EntryRow {
     type: entry.type,
     start_at: new Date(entry.start).toISOString(),
     end_at: entry.end === undefined ? null : new Date(entry.end).toISOString(),
+    paused_at: entry.pausedAt === undefined ? null : new Date(entry.pausedAt).toISOString(),
   } as EntryRow
   for (const [field, column] of Object.entries(FIELDS)) {
     ;(row as unknown as Record<string, unknown>)[column] = entry[field as keyof typeof FIELDS] ?? null
@@ -66,6 +76,7 @@ export function toRow(entry: Entry, householdId: string): EntryRow {
 export function fromRow(row: EntryRow): Entry {
   const entry: Entry = { id: row.id, type: row.type, start: Date.parse(row.start_at) }
   if (row.end_at) entry.end = Date.parse(row.end_at)
+  if (row.paused_at) entry.pausedAt = Date.parse(row.paused_at)
   for (const [field, column] of Object.entries(FIELDS)) {
     const value = row[column]
     if (value !== null && value !== undefined) (entry as unknown as Record<string, unknown>)[field] = value
@@ -90,7 +101,11 @@ function check<T>({ data, error, status }: { data: T; error: { message: string }
 /** The first household the signed-in user belongs to, or null before they create or join one. */
 export async function fetchMyHousehold(): Promise<Household | null> {
   const rows = check(
-    await supabase.from('households').select('id, baby_name, birth_date, invite_code').order('created_at').limit(1),
+    await supabase
+      .from('households')
+      .select('id, baby_name, birth_date, invite_code, feed_interval_min, feed_interval_from')
+      .order('created_at')
+      .limit(1),
   )
   return rows?.[0] ?? null
 }
@@ -103,7 +118,7 @@ export async function joinHousehold(code: string): Promise<Household> {
   return check(await supabase.rpc('join_household', { code }))
 }
 
-export async function updateHousehold(id: string, changes: Partial<Pick<Household, 'baby_name' | 'birth_date'>>) {
+export async function updateHousehold(id: string, changes: HouseholdChanges) {
   check(await supabase.from('households').update(changes).eq('id', id))
 }
 

@@ -1,7 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+// First, so the browser's one-off install prompt event is caught.
+import './lib/install'
+import { loadSettings } from './lib/storage'
+import { followSystemTheme } from './lib/theme'
 import Root from './Root.tsx'
+
+// Sign-in and setup screens follow the OS too; once signed in, App keeps the page in sync with the setting.
+followSystemTheme(() => loadSettings().theme)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

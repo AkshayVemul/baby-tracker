@@ -1,5 +1,5 @@
 import { describe } from '../lib/describe'
-import { hasEndTime, isRunning, TYPES } from '../lib/entries'
+import { isRunning, isTimed, TYPES } from '../lib/entries'
 import { formatTime } from '../lib/time'
 import type { Entry, Settings } from '../types'
 
@@ -15,7 +15,8 @@ export function EntryRow({ entry, settings, now, onOpen }: Props) {
   const detail = describe(entry, settings, now)
   const running = isRunning(entry)
   const time =
-    hasEndTime(entry) && entry.end !== undefined
+    // A single time when there's no real span (older pump logs have end = start).
+    isTimed(entry) && entry.end !== undefined && entry.end > entry.start
       ? `${formatTime(entry.start, settings.timeFormat)} – ${formatTime(entry.end, settings.timeFormat)}`
       : formatTime(entry.start, settings.timeFormat)
 

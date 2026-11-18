@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { defaultKind, hasEndTime, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
+import { defaultKind, isPausable, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
 import { formatDuration, fromLocalInput, MINUTE, toLocalInput } from '../lib/time'
 import { units, type Measure } from '../lib/units'
 import type { Entry, EntryType, Settings } from '../types'
@@ -48,6 +48,8 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
     }
     return values
   })
+  // Whole minutes of break time (pauses, unlatching) taken off a breastfeed or pump session.
+  const [breaks, setBreaks] = useState(initial.pausedMs ? String(Math.round(initial.pausedMs / MINUTE)) : '')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -55,9 +57,7 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
   }, [])
 
   const config = TYPES[type]
-  // Start/End fields: sleep, breastfeeding, activities and pumping. Only the first three can run as a timer.
-  const timed = hasEndTime({ type, kind })
-  const runsAsTimer = isTimed({ type, kind })
+  const timed = isTimed({ type, kind })
   const show = {
     side: (type === 'feed' && kind === 'breast') || type === 'pump',
     amount: (type === 'feed' && kind === 'bottle') || type === 'pump',
@@ -67,9 +67,13 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
     temp: type === 'health' && kind === 'temperature',
     medicine: type === 'health' && kind === 'medicine',
   }
-  const startMs = fromLocalInput(start)
-  const endMs = fromLocalInput(end)
-  const duration = timed && !Number.isNaN(startMs) && !Number.isNaN(endMs) ? endMs - startMs : null
+  // Time pickers only hold whole minutes; an untouched field keeps the exact original time (with its seconds),
+  // so saving e.g. just a pump amount doesn't shorten the session.
+  const startMs = start === toLocalInput(initial.start) ? initial.start : fromLocalInput(start)
+  const endMs = initial.end !== undefined && end === toLocalInput(initial.end) ? initial.end : fromLocalInput(end)
+  const pausable = isPausable({ type, kind })
+  const breakMs = pausable && Number(breaks) > 0 ? Number(breaks) * MINUTE : 0
+  const duration = timed && !Number.isNaN(startMs) && !Number.isNaN(endMs) ? endMs - startMs - breakMs : null
 
   /** Moving the start past the end pushes the end to 5 minutes after it, so the end never needs scrolling back. */
   const changeStart = (value: string) => {
@@ -89,6 +93,8 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
   const submit = () => {
     if (Number.isNaN(startMs)) return setError('Pick a start time.')
     if (timed && !Number.isNaN(endMs) && endMs < startMs) return setError('The end time is before the start time.')
+    if (pausable && breaks.trim() && !(Number(breaks) >= 0)) return setError('Breaks must be a number of minutes.')
+    if (duration !== null && duration < 0) return setError('Breaks are longer than the session.')
 
     const metric: Partial<Record<MeasureField, number>> = {}
     for (const field of Object.keys(MEASURES) as MeasureField[]) {
@@ -106,6 +112,15 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
     const entry: Entry = { id: initial.id, type, start: startMs }
     if (config.kinds) entry.kind = kind
     if (timed && !Number.isNaN(endMs)) entry.end = endMs
+    if (pausable) {
+      let paused = breakMs
+      if (initial.pausedAt !== undefined) {
+        // Still paused and running: keep the open pause. Given an end time: the pause lasted until then.
+        if (entry.end === undefined) entry.pausedAt = initial.pausedAt
+        else paused += Math.max(0, entry.end - initial.pausedAt)
+      }
+      if (paused > 0) entry.pausedMs = paused
+    }
     if (show.side && side) entry.side = side
     if (show.amount && metric.amount !== undefined) entry.amountMl = Math.round(metric.amount)
     if (show.milk && milk) entry.milk = milk
@@ -211,13 +226,19 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
             </label>
           )}
         </div>
+        {pausable && (
+          <label className="field">
+            <span>Breaks (minutes not {type === 'pump' ? 'pumping' : 'feeding'})</span>
+            <input inputMode="numeric" placeholder="0" value={breaks} onChange={(e) => setBreaks(e.target.value)} />
+          </label>
+        )}
         {timed && (
           <p className="muted small">
             {duration !== null && duration >= 0
-              ? `Duration ${formatDuration(duration)}`
-              : runsAsTimer
+              ? `Duration ${formatDuration(duration)}${breakMs ? ` after ${formatDuration(breakMs)} of breaks` : ''}`
+              : duration === null
                 ? 'Leave the end empty to keep the timer running.'
-                : 'End time is optional.'}
+                : ''}
           </p>
         )}
 

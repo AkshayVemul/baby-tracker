@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { describe } from '../lib/describe'
-import { isRunning, kindLabel, sortNewestFirst, TYPE_ORDER, TYPES } from '../lib/entries'
+import { durationMs, finish, hasBreak, isRunning, kindLabel, pause, resume, sortNewestFirst, subtractBreak, TYPE_ORDER, TYPES } from '../lib/entries'
 import { sleepGaps } from '../lib/gaps'
 import { nextFeedDue } from '../lib/nextFeed'
 import { dailyStats, latest } from '../lib/stats'
@@ -9,6 +9,7 @@ import { formatMeasure } from '../lib/units'
 import type { Actions, Entry, Settings } from '../types'
 import { EntryList } from './EntryList'
 import { Icon } from './Icon'
+import { InstallHint } from './InstallHelp'
 
 interface Props {
   entries: Entry[]
@@ -18,6 +19,7 @@ interface Props {
 }
 
 type Side = 'left' | 'right'
+type PumpSide = Side | 'both'
 
 const sideLabel = (side?: string) => (side === 'right' ? 'Right' : side === 'left' ? 'Left' : 'Both')
 
@@ -28,33 +30,51 @@ export function TodayView({ entries, settings, now, actions }: Props) {
   const sleep = running('sleep')
   const feed = running('feed')
   const activity = running('activity')
+  const pump = running('pump')
 
   const lastFeed = latest(entries, (e) => e.type === 'feed')
   const lastBreast = latest(entries, (e) => e.type === 'feed' && e.kind === 'breast' && (e.side === 'left' || e.side === 'right'))
   const nextSide: Side = lastBreast?.side === 'left' ? 'right' : 'left'
+  const lastPump = latest(entries, (e) => e.type === 'pump' && e.side !== undefined)
+  const nextPumpSide: PumpSide =
+    lastPump?.side === 'left' ? 'right' : lastPump?.side === 'right' ? 'left' : 'both'
   const lastBottle = latest(entries, (e) => e.type === 'feed' && e.kind === 'bottle')
   const lastDiaper = latest(entries, (e) => e.type === 'diaper')
   const lastSleep = latest(entries, (e) => e.type === 'sleep' && e.end !== undefined)
+  // The session that ended most recently, within 15 minutes, can still have break time taken off from its card.
+  const justFinished = (test: (e: Entry) => boolean) =>
+    entries
+      .filter((e) => test(e) && e.end !== undefined && e.end > e.start && now - e.end < 15 * MINUTE)
+      .reduce<Entry | undefined>((best, e) => (!best || e.end! > best.end! ? e : best), undefined)
+  const finishedBreastfeed = feed ? undefined : justFinished((e) => e.type === 'feed' && e.kind === 'breast')
+  const finishedPump = pump ? undefined : justFinished((e) => e.type === 'pump')
 
   const next = nextFeedDue(entries, settings)
   const today = startOfDay(now)
   const [stats] = dailyStats(entries, [today], now)
   const todays = sortNewestFirst(entries.filter((e) => e.start >= today || isRunning(e)))
 
-  const stop = (entry: Entry) => actions.save({ ...entry, end: Date.now() })
+  const stop = (entry: Entry) => actions.save(finish(entry, Date.now()))
+  const togglePause = (entry: Entry) =>
+    actions.save(entry.pausedAt === undefined ? pause(entry, Date.now()) : resume(entry, Date.now()))
+  const takeOff = (entry: Entry, minutes: number) => actions.save(subtractBreak(entry, minutes * MINUTE, Date.now()))
   const startFeed = (side: Side) => {
     actions.log({ type: 'feed', kind: 'breast', side, start: Date.now() }, `Feeding on the ${side}`)
   }
   const switchSide = (entry: Entry) => {
     const at = Date.now()
-    actions.save({ ...entry, end: at })
-    actions.log({ type: 'feed', kind: 'breast', side: entry.side === 'left' ? 'right' : 'left', start: at }, 'Switched sides')
+    actions.save(finish(entry, at))
+    actions.log({ type: entry.type, kind: entry.kind, side: entry.side === 'left' ? 'right' : 'left', start: at }, 'Switched sides')
+  }
+  const startPump = (side: PumpSide) => {
+    actions.log({ type: 'pump', side, start: Date.now() }, side === 'both' ? 'Pumping both sides' : `Pumping on the ${side}`)
   }
   const logDiaper = (kind: string, label: string) =>
     actions.log({ type: 'diaper', kind, start: Date.now() }, `${label} diaper logged`)
 
   return (
     <div className="stack">
+      <InstallHint />
       <section className="card since" aria-label="Since last">
         <div>
           <span className="label">Last feed</span>
@@ -89,13 +109,14 @@ export function TodayView({ entries, settings, now, actions }: Props) {
             <span className="small">
               {next.due <= now ? `Overdue by ${formatDuration(now - next.due)}` : `In ${formatDuration(next.due - now)}`}
               <span className="muted">
-                {' '}· every {formatDuration(settings.feedIntervalMin * MINUTE)} from the {settings.feedIntervalFrom} of the last feed
+                {' '}· every {formatDuration(settings.feedIntervalMin * MINUTE)} from the {settings.feedIntervalFrom} of the last feed ·{' '}
+                <a href="#/settings">Change</a>
               </span>
             </span>
           </div>
-          <a className="btn ghost small" href="#/settings">
-            Change
-          </a>
+          <button className="btn primary" onClick={() => startFeed(nextSide)} aria-label={`Start breastfeeding on the ${nextSide}`}>
+            <Icon name="play" /> Start feed
+          </button>
         </section>
       )}
 
@@ -126,7 +147,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           title="Breastfeed"
           subtitle={
             feed
-              ? `${sideLabel(feed.side)} side · since ${formatTime(feed.start, settings.timeFormat)}`
+              ? `${feed.pausedAt !== undefined ? 'Paused · ' : ''}${sideLabel(feed.side)} side · since ${formatTime(feed.start, settings.timeFormat)}`
               : lastBreast
                 ? `Next: ${sideLabel(nextSide)} (last was ${sideLabel(lastBreast.side).toLowerCase()})`
                 : 'Pick the side you start on'
@@ -137,9 +158,10 @@ export function TodayView({ entries, settings, now, actions }: Props) {
         >
           {feed ? (
             <div className="row">
+              <PauseButton entry={feed} onToggle={togglePause} />
               {feed.side !== 'both' && (
-                <button className="btn grow" onClick={() => switchSide(feed)}>
-                  <Icon name="swap" /> Switch to {feed.side === 'left' ? 'right' : 'left'}
+                <button className="btn grow" onClick={() => switchSide(feed)} aria-label={`Switch to ${feed.side === 'left' ? 'right' : 'left'} side`}>
+                  <Icon name="swap" /> {feed.side === 'left' ? 'Right' : 'Left'}
                 </button>
               )}
               <button className="btn primary grow" onClick={() => stop(feed)}>
@@ -147,6 +169,8 @@ export function TodayView({ entries, settings, now, actions }: Props) {
               </button>
             </div>
           ) : (
+            <>
+            {finishedBreastfeed && <TakeOff entry={finishedBreastfeed} now={now} onTakeOff={takeOff} />}
             <div className="row">
               {(['left', 'right'] as const).map((side) => (
                 <button key={side} className={side === nextSide ? 'btn primary grow' : 'btn grow'} onClick={() => startFeed(side)}>
@@ -154,6 +178,58 @@ export function TodayView({ entries, settings, now, actions }: Props) {
                 </button>
               ))}
             </div>
+            </>
+          )}
+        </TimerCard>
+
+        <TimerCard
+          emoji="🥛"
+          color={TYPES.pump.color}
+          title="Pump"
+          subtitle={
+            pump
+              ? `${pump.pausedAt !== undefined ? 'Paused · ' : ''}${sideLabel(pump.side)} · since ${formatTime(pump.start, settings.timeFormat)}`
+              : lastPump?.side === 'both'
+                ? 'Last time: both sides'
+                : lastPump
+                  ? `Next: ${sideLabel(nextPumpSide)} (last was ${sideLabel(lastPump.side).toLowerCase()})`
+                  : 'Pick a side, or both'
+          }
+          running={pump}
+          now={now}
+          onEdit={actions.edit}
+        >
+          {pump ? (
+            <div className="row">
+              <PauseButton entry={pump} onToggle={togglePause} />
+              {pump.side !== 'both' && (
+                <button className="btn grow" onClick={() => switchSide(pump)} aria-label={`Switch to ${pump.side === 'left' ? 'right' : 'left'} side`}>
+                  <Icon name="swap" /> {pump.side === 'left' ? 'Right' : 'Left'}
+                </button>
+              )}
+              <button
+                className="btn primary grow"
+                onClick={() => {
+                  const done = finish(pump, Date.now())
+                  actions.save(done)
+                  // Straight to the form for the amount.
+                  actions.edit(done)
+                }}
+              >
+                <Icon name="stop" /> Stop
+              </button>
+            </div>
+          ) : (
+            <>
+              {finishedPump && <TakeOff entry={finishedPump} now={now} onTakeOff={takeOff} />}
+              <div className="row">
+                {(['left', 'right', 'both'] as const).map((side) => (
+                  <button key={side} className={side === nextPumpSide ? 'btn primary grow' : 'btn grow'} onClick={() => startPump(side)}>
+                    <Icon name="play" /> {sideLabel(side)}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </TimerCard>
 
@@ -266,7 +342,7 @@ interface TimerCardProps {
 /** Timer layout: title row with the live clock on the right, controls underneath. */
 function TimerCard({ emoji, color, title, subtitle, running, now, onEdit, children }: TimerCardProps) {
   return (
-    <div className={running ? 'card timer live' : 'card timer'}>
+    <div className={running ? (running.pausedAt !== undefined ? 'card timer live paused' : 'card timer live') : 'card timer'}>
       <div className="timer-head">
         <span className="badge" style={{ background: color }} aria-hidden="true">
           {emoji}
@@ -277,11 +353,39 @@ function TimerCard({ emoji, color, title, subtitle, running, now, onEdit, childr
         </div>
         {running && (
           <button className="clock" onClick={() => onEdit(running)} title="Edit start time" aria-label={`${title} timer, edit`}>
-            {formatClock(now - running.start)}
+            {formatClock(durationMs(running, now))}
           </button>
         )}
       </div>
       {children}
+    </div>
+  )
+}
+
+function PauseButton({ entry, onToggle }: { entry: Entry; onToggle: (entry: Entry) => void }) {
+  const paused = entry.pausedAt !== undefined
+  return (
+    <button className="btn grow" onClick={() => onToggle(entry)} aria-pressed={paused}>
+      <Icon name={paused ? 'play' : 'pause'} /> {paused ? 'Resume' : 'Pause'}
+    </button>
+  )
+}
+
+/** After stopping: take off minutes the baby was unlatched or pumping was interrupted. */
+function TakeOff({ entry, now, onTakeOff }: { entry: Entry; now: number; onTakeOff: (entry: Entry, minutes: number) => void }) {
+  return (
+    <div className="take-off">
+      <span className="small">
+        Finished · <strong>{formatDuration(durationMs(entry, now))}</strong>
+        {hasBreak(entry) && <span className="muted"> ({formatDuration(entry.pausedMs!)} break)</span>}
+      </span>
+      <div className="take-off-buttons" role="group" aria-label="Take off break time">
+        {[1, 2, 5].map((minutes) => (
+          <button key={minutes} className="chip" onClick={() => onTakeOff(entry, minutes)} aria-label={`Take off ${minutes} minutes`}>
+            −{minutes}m
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

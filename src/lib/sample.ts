@@ -54,7 +54,7 @@ export function sampleEntries(now: number, days = 30): Entry[] {
 
     add({ type: 'activity', kind: 'tummy', start: day + 11 * HOUR + jitter(20), end: day + 11 * HOUR + 10 * MINUTE + jitter(3) })
     if (i % 2 === 0) add({ type: 'activity', kind: 'bath', start: atHour(day, 18) + 50 * MINUTE, end: atHour(day, 19) + 5 * MINUTE })
-    if (i % 3 === 0) add({ type: 'pump', side: 'both', amountMl: 80 + Math.round(Math.random() * 6) * 10, start: day + 15 * HOUR })
+    if (i % 3 === 0) add({ type: 'pump', side: 'both', amountMl: 80 + Math.round(Math.random() * 6) * 10, start: day + 15 * HOUR, end: day + 15 * HOUR + 18 * MINUTE })
 
     if (i % 7 === 0) {
       const weeksAgo = i / 7

@@ -35,6 +35,14 @@ jobs:
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
           # User/org sites (<user>.github.io) are served from /; project sites from /<repo>/.
           VITE_BASE: ${{ endsWith(github.event.repository.name, '.github.io') && '/' || format('/{0}/', github.event.repository.name) }}
+      # After the build passes and before anything is published, so the database is ready for the new code and
+      # a failed migration stops the deploy. Migrations must only add things: the old site runs against the new
+      # schema until the deploy finishes.
+      - run: pnpm db:migrate
+        env:
+          # Settings → Secrets and variables → Actions → Secrets. The Session pooler URI: GitHub's runners can't
+          # reach Supabase's IPv6-only direct address.
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

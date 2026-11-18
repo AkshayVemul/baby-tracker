@@ -1,12 +1,14 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Household } from '../lib/db'
+import { useInstallOption } from '../lib/install'
 import { sampleEntries } from '../lib/sample'
 import { clearLocalEntries, clearOfflineData, loadLocalEntries } from '../lib/storage'
 import { supabase } from '../lib/supabase'
 import { formatDuration, MINUTE, toDateInput } from '../lib/time'
 import { download, fromBackup, toBackup, toCsv } from '../lib/transfer'
-import type { Entry, Settings } from '../types'
+import type { Entry, Settings, Theme } from '../types'
 import { Icon } from './Icon'
+import { InstallHelp } from './InstallHelp'
 
 interface Props {
   entries: Entry[]
@@ -23,6 +25,12 @@ interface Props {
   pending: number
   onOpenToday: () => void
 }
+
+const THEMES: [Theme, string][] = [
+  ['system', 'System'],
+  ['light', 'Light'],
+  ['dark', 'Dark'],
+]
 
 /** 1h to 6h in 15-minute steps. */
 const INTERVALS = Array.from({ length: 21 }, (_, i) => 60 + i * 15)
@@ -56,6 +64,7 @@ function Select<K extends keyof Settings>({
 
 export function SettingsView({ entries, settings, household, email, now, onSettings, bulk, pending, onOpenToday }: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
+  const installOption = useInstallOption()
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [localEntries, setLocalEntries] = useState(loadLocalEntries)
@@ -136,6 +145,30 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
         </section>
       )}
 
+      {installOption && (
+        <section className="card form" aria-labelledby="install">
+          <h3 id="install">Install on your phone</h3>
+          <p className="muted small">Opens full screen from your home screen, like an app, and works offline.</p>
+          <InstallHelp />
+        </section>
+      )}
+
+      <section className="card form" aria-labelledby="appearance">
+        <h3 id="appearance">Appearance on this device</h3>
+        <div className="segmented" role="group" aria-labelledby="appearance">
+          {THEMES.map(([value, label]) => (
+            <button
+              key={value}
+              className={settings.theme === value ? 'active' : undefined}
+              aria-pressed={settings.theme === value}
+              onClick={() => onSettings({ ...settings, theme: value })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="card form" aria-labelledby="profile">
         <h3 id="profile">Baby</h3>
         <div className="grid-2">
@@ -184,8 +217,8 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
       </section>
 
       <section className="card form" aria-labelledby="feeding">
-        <h3 id="feeding">Feed interval on this device</h3>
-        <p className="muted small">Shows when the next feed is due on the Today screen.</p>
+        <h3 id="feeding">Feed interval</h3>
+        <p className="muted small">Shows when the next feed is due on the Today screen. Shared with everyone in the household.</p>
         <div className="grid-2">
           <label className="field">
             <span>Feed every</span>
