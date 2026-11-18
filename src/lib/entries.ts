@@ -105,8 +105,9 @@ export function durationMs(entry: Entry, now: number): number {
   return Math.max(0, (entry.end ?? now) - entry.start)
 }
 
+/** Same start time: whatever ends later is listed first, e.g. a sleep that begins at a bottle's time sits above it. */
 export function sortNewestFirst(entries: Entry[]): Entry[] {
-  return entries.toSorted((a, b) => b.start - a.start)
+  return entries.toSorted((a, b) => b.start - a.start || (b.end ?? b.start) - (a.end ?? a.start))
 }
 
 /** Lower-cased text a search box matches against. */

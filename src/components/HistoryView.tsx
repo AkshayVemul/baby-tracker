@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { searchText, sortNewestFirst, TYPE_ORDER, TYPES } from '../lib/entries'
+import { sleepGaps } from '../lib/gaps'
 import { addDays, formatDay, fromLocalInput, startOfDay } from '../lib/time'
 import type { Actions, Entry, EntryType, Settings } from '../types'
-import { EntryRow } from './EntryRow'
+import { EntryList } from './EntryList'
 import { Icon } from './Icon'
 
 interface Props {
@@ -44,6 +45,9 @@ export function HistoryView({ entries, settings, now, actions }: Props) {
     }
     return [...map]
   }, [results])
+
+  // From all entries, so a type filter or search never suggests sleep that's already logged.
+  const gaps = useMemo(() => sleepGaps(entries, now), [entries, now])
 
   const counts = TYPE_ORDER.map((t) => [t, results.filter((e) => e.type === t).length] as const).filter(([, n]) => n > 0)
   const filtering = query || types.length > 0 || from || to
@@ -118,11 +122,7 @@ export function HistoryView({ entries, settings, now, actions }: Props) {
           <h3 className="section-title">
             {formatDay(day, now)} <span className="muted">· {items.length}</span>
           </h3>
-          <ul className="card list">
-            {items.map((e) => (
-              <EntryRow key={e.id} entry={e} settings={settings} now={now} onOpen={actions.edit} />
-            ))}
-          </ul>
+          <EntryList entries={items} gaps={gaps} settings={settings} now={now} actions={actions} />
         </section>
       ))}
 

@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { describe } from '../lib/describe'
 import { isRunning, kindLabel, sortNewestFirst, TYPE_ORDER, TYPES } from '../lib/entries'
+import { sleepGaps } from '../lib/gaps'
 import { dailyStats, latest } from '../lib/stats'
 import { formatAgo, formatClock, formatDuration, formatTime, startOfDay } from '../lib/time'
 import { formatMeasure } from '../lib/units'
 import type { Actions, Entry, Settings } from '../types'
-import { EntryRow } from './EntryRow'
+import { EntryList } from './EntryList'
 import { Icon } from './Icon'
 
 interface Props {
@@ -222,11 +223,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
             <p className="muted small">Start a timer or tap a quick-log button. Everything is saved on this device.</p>
           </div>
         ) : (
-          <ul className="card list">
-            {todays.map((e) => (
-              <EntryRow key={e.id} entry={e} settings={settings} now={now} onOpen={actions.edit} />
-            ))}
-          </ul>
+          <EntryList entries={todays} gaps={sleepGaps(entries, now)} settings={settings} now={now} actions={actions} />
         )}
       </section>
     </div>
