@@ -1,3 +1,5 @@
+import type { TimeFormat } from '../types'
+
 export const MINUTE = 60_000
 export const HOUR = 60 * MINUTE
 
@@ -55,8 +57,9 @@ export function formatAgo(ms: number, now: number): string {
   return `${formatDuration(diff)} ago`
 }
 
-export function formatTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+/** "9:05 PM" or "21:05". */
+export function formatTime(ms: number, format: TimeFormat): string {
+  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: format === '12h' })
 }
 
 /** "Today", "Yesterday", "Mon 3 Nov" */

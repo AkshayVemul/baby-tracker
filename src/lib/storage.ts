@@ -10,6 +10,7 @@ export const defaultSettings: Settings = {
   weight: 'kg',
   length: 'cm',
   temp: 'C',
+  timeFormat: '12h',
 }
 
 export function newId(): string {

@@ -65,8 +65,8 @@ export function RhythmChart({ entries, days, settings, now }: Props) {
                 key={entry.id}
                 className={`mark ${kind}${selected?.id === entry.id ? ' selected' : ''}`}
                 style={{ left: `${left}%`, width: kind === 'diaper' ? undefined : `max(4px, ${width}%)` }}
-                title={`${TYPES[entry.type].label} ${formatTime(entry.start)}`}
-                aria-label={`${TYPES[entry.type].label} at ${formatTime(entry.start)}`}
+                title={`${TYPES[entry.type].label} ${formatTime(entry.start, settings.timeFormat)}`}
+                aria-label={`${TYPES[entry.type].label} at ${formatTime(entry.start, settings.timeFormat)}`}
                 onClick={() => setSelected(selected?.id === entry.id ? null : entry)}
               />
             ))}
@@ -75,8 +75,8 @@ export function RhythmChart({ entries, days, settings, now }: Props) {
       ))}
       <p className="rhythm-detail muted small" aria-live="polite">
         {selected
-          ? `${TYPES[selected.type].emoji} ${TYPES[selected.type].label} · ${formatTime(selected.start)}${
-              selected.end ? ` – ${formatTime(selected.end)}` : ''
+          ? `${TYPES[selected.type].emoji} ${TYPES[selected.type].label} · ${formatTime(selected.start, settings.timeFormat)}${
+              selected.end ? ` – ${formatTime(selected.end, settings.timeFormat)}` : ''
             } · ${describe(selected, settings, now)}`
           : 'Tap a block to see details. Shaded hours are night (7pm–7am).'}
       </p>

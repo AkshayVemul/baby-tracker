@@ -16,8 +16,8 @@ export function EntryRow({ entry, settings, now, onOpen }: Props) {
   const running = isRunning(entry)
   const time =
     isTimed(entry) && entry.end !== undefined
-      ? `${formatTime(entry.start)} – ${formatTime(entry.end)}`
-      : formatTime(entry.start)
+      ? `${formatTime(entry.start, settings.timeFormat)} – ${formatTime(entry.end, settings.timeFormat)}`
+      : formatTime(entry.start, settings.timeFormat)
 
   return (
     <li>

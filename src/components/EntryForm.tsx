@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { defaultKind, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
-import { formatDuration, fromLocalInput, toLocalInput } from '../lib/time'
+import { formatDuration, fromLocalInput, MINUTE, toLocalInput } from '../lib/time'
 import { units, type Measure } from '../lib/units'
 import type { Entry, EntryType, Settings } from '../types'
 import { Icon } from './Icon'
@@ -50,7 +50,9 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
   })
   const [error, setError] = useState('')
 
-  useEffect(() => dialog.current?.showModal(), [])
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
 
   const config = TYPES[type]
   const timed = isTimed({ type, kind })
@@ -66,6 +68,15 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
   const startMs = fromLocalInput(start)
   const endMs = fromLocalInput(end)
   const duration = timed && !Number.isNaN(startMs) && !Number.isNaN(endMs) ? endMs - startMs : null
+
+  /** Moving the start past the end pushes the end to 5 minutes after it, so the end never needs scrolling back. */
+  const changeStart = (value: string) => {
+    setStart(value)
+    const nextStart = fromLocalInput(value)
+    if (timed && !Number.isNaN(nextStart) && !Number.isNaN(endMs) && endMs <= nextStart) {
+      setEnd(toLocalInput(nextStart + 5 * MINUTE))
+    }
+  }
 
   const changeType = (next: EntryType) => {
     setType(next)
@@ -181,16 +192,16 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
           </div>
         )}
 
-        <div className={timed ? 'grid-2' : undefined}>
+        <div className="time-row">
           <label className="field">
             <span>{timed ? 'Start' : 'Time'}</span>
-            <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} required />
+            <input type="datetime-local" value={start} onChange={(e) => changeStart(e.target.value)} required />
           </label>
           {timed && (
             <label className="field">
               <span>End</span>
               <span className="input-with-btn">
-                <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
+                <input type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
                 <button type="button" className="btn small" onClick={() => setEnd(toLocalInput(Date.now()))}>
                   Now
                 </button>

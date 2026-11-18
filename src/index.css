@@ -93,6 +93,7 @@ body {
   margin: 0;
   min-height: 100dvh;
   background: var(--bg);
+  overflow-x: hidden;
 }
 
 h1,
@@ -157,7 +158,9 @@ button {
 .app {
   max-width: 760px;
   margin: 0 auto;
-  padding: 16px 16px calc(96px + env(safe-area-inset-bottom));
+  /* Installed to the home screen the page runs under the status bar and notch. */
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    calc(96px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 .app-header {
@@ -410,7 +413,25 @@ textarea {
 
 .input-with-btn {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+/* The field keeps a readable width; the button drops to its own line when there's no room beside it. */
+.input-with-btn input {
+  flex: 1 1 210px;
+  min-width: 0;
+}
+
+/* Start and End sit side by side when there's room and stack on narrow screens. */
+.time-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.time-row > .field {
+  flex: 1 1 240px;
 }
 
 .input-with-btn .btn {
@@ -990,6 +1011,7 @@ tbody th {
 
 .sheet-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   padding-top: 4px;

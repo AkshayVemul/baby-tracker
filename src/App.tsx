@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChartsView } from './components/ChartsView'
 import { EntryForm } from './components/EntryForm'
 import { HistoryView } from './components/HistoryView'
 import { Icon, type IconName } from './components/Icon'
 import { SettingsView } from './components/SettingsView'
 import { TodayView } from './components/TodayView'
+import { useBackToClose, useHashRoute } from './hooks/useHashRoute'
 import { useNow } from './hooks/useNow'
 import {
   deleteAllEntries,
@@ -23,6 +24,8 @@ import { formatAge } from './lib/time'
 import type { Actions, Entry, Settings } from './types'
 
 type Tab = 'today' | 'history' | 'charts' | 'settings'
+
+const ROUTES: readonly Tab[] = ['today', 'history', 'charts', 'settings']
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'today', label: 'Today', icon: 'home' },
@@ -56,8 +59,9 @@ export default function App({ household, email, onHousehold }: Props) {
   const [entries, setEntries] = useState<Entry[] | null>(null)
   // Units stay per device; the baby's name and birth date live on the shared household.
   const [units, setUnits] = useState(loadSettings)
-  const [tab, setTab] = useState<Tab>('today')
+  const [tab, setTab] = useHashRoute(ROUTES, 'today')
   const [draft, setDraft] = useState<{ entry: Entry; isNew: boolean } | null>(null)
+  const closeDraft = useBackToClose(draft !== null, useCallback(() => setDraft(null), []))
   const [toast, setToast] = useState<Toast | null>(null)
   const list = entries ?? []
   // Tick every second while a timer runs; otherwise often enough for "5m ago" labels.
@@ -65,7 +69,13 @@ export default function App({ household, email, onHousehold }: Props) {
 
   const settings: Settings = { ...units, babyName: household.baby_name, birthDate: household.birth_date ?? '' }
 
-  useEffect(() => saveSettings(units), [units])
+  useEffect(() => {
+    saveSettings(units)
+  }, [units])
+  // Block body on purpose: newer browsers return a Promise from scrollTo, which React would treat as a cleanup.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [tab])
 
   useEffect(() => {
     if (!toast) return
@@ -204,10 +214,7 @@ export default function App({ household, email, onHousehold }: Props) {
             now={now}
             onSettings={changeSettings}
             bulk={bulk}
-            onOpenToday={() => {
-              setTab('today')
-              window.scrollTo(0, 0)
-            }}
+            onOpenToday={() => setTab('today')}
           />
         )}
       </main>
@@ -218,10 +225,7 @@ export default function App({ household, email, onHousehold }: Props) {
             key={t.id}
             className={t.id === tab ? 'tab active' : 'tab'}
             aria-current={t.id === tab ? 'page' : undefined}
-            onClick={() => {
-              setTab(t.id)
-              window.scrollTo(0, 0)
-            }}
+            onClick={() => setTab(t.id)}
           >
             <Icon name={t.icon} size={22} />
             <span>{t.label}</span>
@@ -235,14 +239,14 @@ export default function App({ household, email, onHousehold }: Props) {
           initial={draft.entry}
           isNew={draft.isNew}
           settings={settings}
-          onClose={() => setDraft(null)}
+          onClose={closeDraft}
           onSave={(entry) => {
             actions.save(entry)
-            setDraft(null)
+            closeDraft()
           }}
           onDelete={() => {
             actions.remove(draft.entry)
-            setDraft(null)
+            closeDraft()
           }}
         />
       )}

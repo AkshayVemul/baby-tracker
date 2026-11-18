@@ -33,6 +33,7 @@ export type VolumeUnit = 'ml' | 'oz'
 export type WeightUnit = 'kg' | 'lb'
 export type LengthUnit = 'cm' | 'in'
 export type TempUnit = 'C' | 'F'
+export type TimeFormat = '12h' | '24h'
 
 export interface Settings {
   babyName: string
@@ -42,6 +43,7 @@ export interface Settings {
   weight: WeightUnit
   length: LengthUnit
   temp: TempUnit
+  timeFormat: TimeFormat
 }
 
 /** What screens can do to the log; implemented once in App. */

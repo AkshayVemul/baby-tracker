@@ -161,12 +161,13 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
       </section>
 
       <section className="card form" aria-labelledby="units">
-        <h3 id="units">Units on this device</h3>
+        <h3 id="units">Units and time on this device</h3>
         <div className="grid-2">
           <Select label="Volume" field="volume" options={[['ml', 'Millilitres (ml)'], ['oz', 'Fluid ounces (oz)']]} settings={settings} onSettings={onSettings} />
           <Select label="Weight" field="weight" options={[['kg', 'Kilograms (kg)'], ['lb', 'Pounds (lb)']]} settings={settings} onSettings={onSettings} />
           <Select label="Length" field="length" options={[['cm', 'Centimetres (cm)'], ['in', 'Inches (in)']]} settings={settings} onSettings={onSettings} />
           <Select label="Temperature" field="temp" options={[['C', 'Celsius (°C)'], ['F', 'Fahrenheit (°F)']]} settings={settings} onSettings={onSettings} />
+          <Select label="Time format" field="timeFormat" options={[['12h', '12-hour (9:05 PM)'], ['24h', '24-hour (21:05)']]} settings={settings} onSettings={onSettings} />
         </div>
       </section>
 

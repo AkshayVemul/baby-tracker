@@ -72,7 +72,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
                 ? formatDuration(now - lastSleep.end)
                 : '—'}
           </strong>
-          {!sleep && lastSleep?.end && <span className="muted small">woke {formatTime(lastSleep.end)}</span>}
+          {!sleep && lastSleep?.end && <span className="muted small">woke {formatTime(lastSleep.end, settings.timeFormat)}</span>}
         </div>
       </section>
 
@@ -81,7 +81,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           emoji="😴"
           color={TYPES.sleep.color}
           title="Sleep"
-          subtitle={sleep ? `since ${formatTime(sleep.start)}` : 'Tap when baby falls asleep'}
+          subtitle={sleep ? `since ${formatTime(sleep.start, settings.timeFormat)}` : 'Tap when baby falls asleep'}
           running={sleep}
           now={now}
           onEdit={actions.edit}
@@ -103,7 +103,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           title="Breastfeed"
           subtitle={
             feed
-              ? `${sideLabel(feed.side)} side · since ${formatTime(feed.start)}`
+              ? `${sideLabel(feed.side)} side · since ${formatTime(feed.start, settings.timeFormat)}`
               : lastBreast
                 ? `Next: ${sideLabel(nextSide)} (last was ${sideLabel(lastBreast.side).toLowerCase()})`
                 : 'Pick the side you start on'
@@ -138,7 +138,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           emoji="🧸"
           color={TYPES.activity.color}
           title="Activity"
-          subtitle={activity ? `${kindLabel(activity)} · since ${formatTime(activity.start)}` : 'Tummy time, bath, outdoors…'}
+          subtitle={activity ? `${kindLabel(activity)} · since ${formatTime(activity.start, settings.timeFormat)}` : 'Tummy time, bath, outdoors…'}
           running={activity}
           now={now}
           onEdit={actions.edit}
