@@ -87,21 +87,16 @@ export function kindLabel(entry: Entry): string | undefined {
 }
 
 /**
- * Entries with a start and an end that can run as a timer: sleep, breastfeeding, pumping, activities.
- * No end yet means the timer is running.
+ * Entries with a start and an end that can run as a timer: sleep, every kind of feed, pumping, activities.
+ * No end yet means the timer is running. Diapers, growth, health and notes are single moments.
  */
 export function isTimed(entry: Pick<Entry, 'type' | 'kind'>): boolean {
-  return (
-    entry.type === 'sleep' ||
-    entry.type === 'activity' ||
-    entry.type === 'pump' ||
-    (entry.type === 'feed' && entry.kind === 'breast')
-  )
+  return entry.type === 'sleep' || entry.type === 'activity' || entry.type === 'pump' || entry.type === 'feed'
 }
 
-/** Breastfeeding and pumping can be paused and have break time taken off. */
+/** Feeds and pumping can be paused and have break time taken off. */
 export function isPausable(entry: Pick<Entry, 'type' | 'kind'>): boolean {
-  return entry.type === 'pump' || (entry.type === 'feed' && entry.kind === 'breast')
+  return entry.type === 'pump' || entry.type === 'feed'
 }
 
 export function isRunning(entry: Entry): boolean {

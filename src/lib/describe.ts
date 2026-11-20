@@ -24,9 +24,10 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
           [entry.amountMl !== undefined && formatMeasure('volume', entry.amountMl, settings), milk]
             .filter(Boolean)
             .join(' ') || undefined,
+          timing(entry, now),
         )
       } else {
-        parts.push(entry.food)
+        parts.push(entry.food, timing(entry, now))
       }
       break
     case 'diaper':

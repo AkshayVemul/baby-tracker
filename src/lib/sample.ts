@@ -45,7 +45,8 @@ export function sampleEntries(now: number, days = 30): Entry[] {
       const start = day + hour * HOUR + jitter(20)
       add({ type: 'feed', kind: 'breast', side: pick(['left', 'right']), start, end: start + (15 + Math.random() * 10) * MINUTE })
     }
-    add({ type: 'feed', kind: 'bottle', milk: pick(['breast', 'formula']), amountMl: 90 + Math.round(Math.random() * 6) * 10, start: atHour(day, 19) + jitter(15) })
+    const bottleAt = atHour(day, 19) + jitter(15)
+    add({ type: 'feed', kind: 'bottle', milk: pick(['breast', 'formula']), amountMl: 90 + Math.round(Math.random() * 6) * 10, start: bottleAt, end: bottleAt + (12 + Math.random() * 8) * MINUTE })
 
     // Daytime diapers.
     for (const hour of [7.2, 10, 12, 15, 18]) {

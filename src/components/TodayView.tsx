@@ -38,7 +38,8 @@ export function TodayView({ entries, settings, now, actions }: Props) {
   const lastPump = latest(entries, (e) => e.type === 'pump' && e.side !== undefined)
   const nextPumpSide: PumpSide =
     lastPump?.side === 'left' ? 'right' : lastPump?.side === 'right' ? 'left' : 'both'
-  const lastBottle = latest(entries, (e) => e.type === 'feed' && e.kind === 'bottle')
+  // For suggesting an amount and milk: the last bottle that has an amount (not one that's running or just stopped).
+  const lastBottle = latest(entries, (e) => e.type === 'feed' && e.kind === 'bottle' && e.amountMl !== undefined)
   const lastDiaper = latest(entries, (e) => e.type === 'diaper')
   const lastSleep = latest(entries, (e) => e.type === 'sleep' && e.end !== undefined)
   // The session that ended most recently, within 15 minutes, can still have break time taken off from its card.
@@ -46,7 +47,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
     entries
       .filter((e) => test(e) && e.end !== undefined && e.end > e.start && now - e.end < 15 * MINUTE)
       .reduce<Entry | undefined>((best, e) => (!best || e.end! > best.end! ? e : best), undefined)
-  const finishedBreastfeed = feed ? undefined : justFinished((e) => e.type === 'feed' && e.kind === 'breast')
+  const finishedFeed = feed ? undefined : justFinished((e) => e.type === 'feed' && (e.kind === 'breast' || e.kind === 'bottle'))
   const finishedPump = pump ? undefined : justFinished((e) => e.type === 'pump')
 
   const next = nextFeedDue(entries, settings)
@@ -58,6 +59,15 @@ export function TodayView({ entries, settings, now, actions }: Props) {
   const togglePause = (entry: Entry) =>
     actions.save(entry.pausedAt === undefined ? pause(entry, Date.now()) : resume(entry, Date.now()))
   const takeOff = (entry: Entry, minutes: number) => actions.save(subtractBreak(entry, minutes * MINUTE, Date.now()))
+  const startBottle = () => {
+    actions.log({ type: 'feed', kind: 'bottle', milk: lastBottle?.milk, start: Date.now() }, 'Bottle timer started')
+  }
+  /** Stopping a bottle opens it for the amount, suggesting the last bottle's. */
+  const stopFeed = (entry: Entry) => {
+    const done = finish(entry, Date.now())
+    actions.save(done)
+    if (done.kind === 'bottle') actions.edit({ ...done, amountMl: done.amountMl ?? lastBottle?.amountMl })
+  }
   const startFeed = (side: Side) => {
     actions.log({ type: 'feed', kind: 'breast', side, start: Date.now() }, `Feeding on the ${side}`)
   }
@@ -142,15 +152,15 @@ export function TodayView({ entries, settings, now, actions }: Props) {
         </TimerCard>
 
         <TimerCard
-          emoji="🤱"
+          emoji="🍼"
           color={TYPES.feed.color}
-          title="Breastfeed"
+          title="Feed"
           subtitle={
             feed
-              ? `${feed.pausedAt !== undefined ? 'Paused · ' : ''}${sideLabel(feed.side)} side · since ${formatTime(feed.start, settings.timeFormat)}`
+              ? `${feed.pausedAt !== undefined ? 'Paused · ' : ''}${feed.kind === 'bottle' ? 'Bottle' : `${sideLabel(feed.side)} side`} · since ${formatTime(feed.start, settings.timeFormat)}`
               : lastBreast
-                ? `Next: ${sideLabel(nextSide)} (last was ${sideLabel(lastBreast.side).toLowerCase()})`
-                : 'Pick the side you start on'
+                ? `Next side: ${sideLabel(nextSide)} (last was ${sideLabel(lastBreast.side).toLowerCase()})`
+                : 'Breast (pick a side) or bottle'
           }
           running={feed}
           now={now}
@@ -159,25 +169,28 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           {feed ? (
             <div className="row">
               <PauseButton entry={feed} onToggle={togglePause} />
-              {feed.side !== 'both' && (
+              {feed.kind === 'breast' && feed.side !== 'both' && (
                 <button className="btn grow" onClick={() => switchSide(feed)} aria-label={`Switch to ${feed.side === 'left' ? 'right' : 'left'} side`}>
                   <Icon name="swap" /> {feed.side === 'left' ? 'Right' : 'Left'}
                 </button>
               )}
-              <button className="btn primary grow" onClick={() => stop(feed)}>
+              <button className="btn primary grow" onClick={() => stopFeed(feed)}>
                 <Icon name="stop" /> Stop
               </button>
             </div>
           ) : (
             <>
-            {finishedBreastfeed && <TakeOff entry={finishedBreastfeed} now={now} onTakeOff={takeOff} />}
-            <div className="row">
-              {(['left', 'right'] as const).map((side) => (
-                <button key={side} className={side === nextSide ? 'btn primary grow' : 'btn grow'} onClick={() => startFeed(side)}>
-                  <Icon name="play" /> {sideLabel(side)}
+              {finishedFeed && <TakeOff entry={finishedFeed} now={now} onTakeOff={takeOff} />}
+              <div className="row">
+                {(['left', 'right'] as const).map((side) => (
+                  <button key={side} className={side === nextSide ? 'btn primary grow' : 'btn grow'} onClick={() => startFeed(side)}>
+                    <Icon name="play" /> {sideLabel(side)}
+                  </button>
+                ))}
+                <button className="btn grow" onClick={startBottle}>
+                  <Icon name="play" /> Bottle
                 </button>
-              ))}
-            </div>
+              </div>
             </>
           )}
         </TimerCard>
