@@ -6,6 +6,7 @@ const paths = {
   edit: <path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" />,
   trash: <path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6" />,
   plus: <path d="M12 5v14M5 12h14" />,
+  refresh: <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4.5H15" />,
   close: <path d="M6 6l12 12M18 6L6 18" />,
   search: <path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20" />,
   home: <path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z" />,

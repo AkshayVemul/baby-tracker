@@ -46,7 +46,8 @@ export default function App({ household, email, onHousehold }: Props) {
   const closeDraft = useBackToClose(draft !== null, useCallback(() => setDraft(null), []))
   const [toast, setToast] = useState<Toast | null>(null)
   const notify = useCallback((message: string) => setToast({ id: Date.now(), message }), [])
-  const { entries, pending, online, save, drop, replaceAll, add } = useEntries(householdId, onHousehold, notify)
+  const { entries, pending, online, save, drop, replaceAll, add, refresh } = useEntries(householdId, onHousehold, notify)
+  const [refreshing, setRefreshing] = useState(false)
   const list = entries ?? []
   // Tick every second while a timer runs; otherwise often enough for "5m ago" labels.
   const now = useNow(list.some(isRunning) ? 1000 : 30_000)
@@ -152,9 +153,25 @@ export default function App({ household, email, onHousehold }: Props) {
             </p>
           )}
         </div>
-        <button className="btn primary" onClick={() => actions.create('feed')}>
-          <Icon name="plus" /> Log
-        </button>
+        <div className="row">
+          <button
+            className={refreshing ? 'icon-btn spinning' : 'icon-btn'}
+            aria-label="Refresh"
+            title="Refresh"
+            disabled={refreshing}
+            onClick={async () => {
+              setRefreshing(true)
+              const loaded = await refresh()
+              setRefreshing(false)
+              notify(loaded ? 'Up to date' : 'Couldn’t reach the server · showing what’s on this phone')
+            }}
+          >
+            <Icon name="refresh" />
+          </button>
+          <button className="btn primary" onClick={() => actions.create('feed')}>
+            <Icon name="plus" /> Log
+          </button>
+        </div>
       </header>
 
       <main className="content">

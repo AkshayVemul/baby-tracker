@@ -1351,3 +1351,21 @@ code {
 .add-part {
   align-self: flex-start;
 }
+
+/* The refresh button turns while it catches up. */
+.spinning svg {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning svg {
+    animation: none;
+    opacity: 0.5;
+  }
+}
