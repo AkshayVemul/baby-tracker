@@ -1,5 +1,5 @@
 import type { Entry, Settings } from '../types'
-import { durationMs, hasBreak, kindLabel, MILKS, SIDES } from './entries'
+import { durationMs, hasBreak, kindLabel, MILKS, sideTimes, SIDES } from './entries'
 import { formatDuration } from './time'
 import { formatMeasure } from './units'
 
@@ -18,7 +18,11 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
     case 'feed':
       parts.push(kindLabel(entry))
       if (entry.kind === 'breast') {
-        parts.push(side, timing(entry, now))
+        // A bottle top-up after breastfeeding brings its amount along.
+        const topUp = [entry.amountMl !== undefined && formatMeasure('volume', entry.amountMl, settings), entry.amountMl !== undefined && milk]
+          .filter(Boolean)
+          .join(' ')
+        parts.push(...sidesAndTiming(entry, side, now), topUp || undefined)
       } else if (entry.kind === 'bottle') {
         parts.push(
           [entry.amountMl !== undefined && formatMeasure('volume', entry.amountMl, settings), milk]
@@ -34,7 +38,7 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
       parts.push(kindLabel(entry))
       break
     case 'pump':
-      parts.push(side, entry.amountMl !== undefined ? formatMeasure('volume', entry.amountMl, settings) : undefined, timing(entry, now))
+      parts.push(...sidesAndTiming(entry, side, now), entry.amountMl !== undefined ? formatMeasure('volume', entry.amountMl, settings) : undefined)
       break
     case 'growth':
       if (entry.weightKg !== undefined) parts.push(formatMeasure('weight', entry.weightKg, settings))
@@ -56,6 +60,21 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
  * Breastfeeding/pumping status: "paused" or "in progress" while the timer runs, otherwise the net duration with
  * any break time, e.g. "14m · 2m break". Nothing for an older pump log with no real duration.
  */
+/** "Left 12m + Right 9m", for a session that switched sides; otherwise undefined. */
+export function sidesText(entry: Entry, now: number): string | undefined {
+  return sideTimes(entry, now)
+    ?.map(({ side, ms }) => `${side === 'left' ? 'Left' : side === 'right' ? 'Right' : 'Bottle'} ${formatDuration(ms)}`)
+    .join(' + ')
+}
+
+/** The side and duration, or for a session that switched sides the time per side (plus status or breaks). */
+function sidesAndTiming(entry: Entry, side: string | undefined, now: number): (string | undefined)[] {
+  const sides = sidesText(entry, now)
+  if (!sides) return [side, timing(entry, now)]
+  if (entry.end === undefined) return [sides, entry.pausedAt !== undefined ? 'paused' : 'in progress']
+  return [sides, hasBreak(entry) ? `${formatDuration(entry.pausedMs!)} break` : undefined]
+}
+
 function timing(entry: Entry, now: number): string | undefined {
   if (entry.end === undefined) return entry.pausedAt !== undefined ? 'paused' : 'in progress'
   if (entry.end <= entry.start) return undefined

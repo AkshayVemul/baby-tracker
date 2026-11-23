@@ -42,6 +42,20 @@ describe('dailyStats', () => {
   })
 })
 
+describe('mixed feeds', () => {
+  it('counts a breastfeed with a bottle top-up once, with its ml and only the breast time', () => {
+    const mixed: Entry = entry({
+      type: 'feed', kind: 'breast', side: 'left', amountMl: 60, start: atHour(day, 9), end: atHour(day, 9) + 25 * MINUTE,
+      segments: [
+        { side: 'left', start: atHour(day, 9), end: atHour(day, 9) + 15 * MINUTE },
+        { side: 'bottle', start: atHour(day, 9) + 15 * MINUTE, end: atHour(day, 9) + 25 * MINUTE },
+      ],
+    })
+    const [s] = dailyStats([mixed], [day], atHour(day, 12))
+    expect(s).toMatchObject({ breast: 1, bottle: 0, bottleMl: 60, breastMs: 15 * MINUTE })
+  })
+})
+
 describe('summarize', () => {
   it('averages over tracked days only and counts mixed diapers as wet and dirty', () => {
     const entries = [

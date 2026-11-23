@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { defaultKind, isPausable, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
-import { formatDuration, fromLocalInput, MINUTE, toLocalInput } from '../lib/time'
+import { describe, sidesText } from '../lib/describe'
+import { adjustBreaks, defaultKind, isPausable, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
+import { formatDuration, formatTime, fromLocalInput, MINUTE, toLocalInput } from '../lib/time'
 import { units, type Measure } from '../lib/units'
 import type { Entry, EntryType, Settings } from '../types'
 import { Icon } from './Icon'
@@ -12,6 +13,9 @@ interface Props {
   onSave: (entry: Entry) => void
   onDelete: () => void
   onClose: () => void
+  /** A feed that ended just before this one, which it can be merged into (e.g. this is a bottle top-up). */
+  mergeWith?: Entry
+  onMerge?: () => void
 }
 
 /** Measurements are edited as text in the user's units and converted back to metric on save. */
@@ -26,7 +30,7 @@ const METRIC_FIELD: Record<MeasureField, keyof Entry> = {
   temp: 'tempC',
 }
 
-export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose }: Props) {
+export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose, mergeWith, onMerge }: Props) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [type, setType] = useState<EntryType>(initial.type)
   const [kind, setKind] = useState(initial.kind)
@@ -56,12 +60,14 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
     dialog.current?.showModal()
   }, [])
 
+  // A breastfeed with a bottle top-up as one of its parts takes the bottle's amount and milk too.
+  const hasBottlePart = initial.segments?.some((segment) => segment.side === 'bottle') === true
   const config = TYPES[type]
   const timed = isTimed({ type, kind })
   const show = {
     side: (type === 'feed' && kind === 'breast') || type === 'pump',
-    amount: (type === 'feed' && kind === 'bottle') || type === 'pump',
-    milk: type === 'feed' && kind === 'bottle',
+    amount: (type === 'feed' && (kind === 'bottle' || hasBottlePart)) || type === 'pump',
+    milk: type === 'feed' && (kind === 'bottle' || hasBottlePart),
     food: type === 'feed' && kind === 'solids',
     growth: type === 'growth',
     temp: type === 'health' && kind === 'temperature',
@@ -69,6 +75,10 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
   }
   // Time pickers only hold whole minutes; an untouched field keeps the exact original time (with its seconds),
   // so saving e.g. just a pump amount doesn't shorten the session.
+  const [openedAt] = useState(Date.now)
+  // A session that switched sides keeps its per-side times; the side chips give way to the breakdown.
+  const sessionSegments =
+    initial.segments && initial.segments.length > 1 && type === initial.type && kind === initial.kind ? initial.segments : undefined
   const startMs = start === toLocalInput(initial.start) ? initial.start : fromLocalInput(start)
   const endMs = initial.end !== undefined && end === toLocalInput(initial.end) ? initial.end : fromLocalInput(end)
   const pausable = isPausable({ type, kind })
@@ -122,6 +132,21 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
       if (paused > 0) entry.pausedMs = paused
     }
     if (show.side && side) entry.side = side
+    if (sessionSegments) {
+      // Keep the sides lined up with the edited start, end and breaks: the first side starts with the session,
+      // the last ends with it, and a change in breaks goes to the latest side first.
+      const segments = sessionSegments.map((segment) => ({ ...segment }))
+      segments[0].start = entry.start
+      segments[segments.length - 1].end = entry.end
+      Object.assign(
+        entry,
+        adjustBreaks(
+          { ...entry, side: initial.side, pausedMs: initial.pausedMs, segments },
+          (entry.pausedMs ?? 0) - (initial.pausedMs ?? 0),
+          Date.now(),
+        ),
+      )
+    }
     if (show.amount && metric.amount !== undefined) entry.amountMl = Math.round(metric.amount)
     if (show.milk && milk) entry.milk = milk
     if (show.food && text.food.trim()) entry.food = text.food.trim()
@@ -189,7 +214,15 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
           />
         )}
         {config.kinds && <Chips label="Kind" options={config.kinds} value={kind} onChange={setKind} />}
-        {show.side && <Chips label="Side" options={SIDES} value={side} onChange={(v) => setSide(v as Entry['side'])} />}
+        {show.side && sessionSegments && (
+          <div className="field">
+            <span>Sides</span>
+            <p className="small">{sidesText(initial, openedAt)}</p>
+          </div>
+        )}
+        {show.side && !sessionSegments && (
+          <Chips label="Side" options={SIDES} value={side} onChange={(v) => setSide(v as Entry['side'])} />
+        )}
         {show.milk && <Chips label="Milk" options={MILKS} value={milk} onChange={(v) => setMilk(v as Entry['milk'])} />}
 
         {show.amount && measureInput('amount', 'Amount')}
@@ -256,6 +289,16 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose 
           <p className="error" role="alert">
             {error}
           </p>
+        )}
+
+        {mergeWith && onMerge && (
+          <div className="merge-hint">
+            <p className="muted small">Part of the same feeding? Combine it with the feed just before.</p>
+            <button type="button" className="btn small" onClick={onMerge}>
+              Merge with the {formatTime(mergeWith.start, settings.timeFormat)} feed
+              {describe(mergeWith, settings, openedAt) ? ` (${describe(mergeWith, settings, openedAt)})` : ''}
+            </button>
+          </div>
         )}
 
         <footer className="sheet-actions">

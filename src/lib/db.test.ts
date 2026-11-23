@@ -11,6 +11,10 @@ describe('entry ↔ row mapping', () => {
       { id: 'd', type: 'health', kind: 'medicine', medicine: 'Paracetamol', dose: '2.5 ml', tempC: 38.1, start: 1 },
       { id: 'e', type: 'sleep', start: 1_700_000_000_000, end: 1_700_003_600_000 },
       { id: 'f', type: 'pump', side: 'both', start: 1_700_000_000_000, pausedMs: 120_000, pausedAt: 1_700_000_900_000 },
+      {
+        id: 'g', type: 'feed', kind: 'breast', side: 'right', start: 1_700_000_000_000, end: 1_700_001_260_000, pausedMs: 60_000,
+        segments: [{ side: 'left', start: 1_700_000_000_000, end: 1_700_000_720_000, pausedMs: 60_000 }, { side: 'right', start: 1_700_000_720_000, end: 1_700_001_260_000 }],
+      },
     ]
     for (const entry of entries) expect(fromRow(toRow(entry, 'h'))).toEqual(entry)
   })

@@ -1,3 +1,15 @@
+/**
+ * One part of a feed or pump session with more than one: a side, or a bottle (e.g. a top-up after breastfeeding).
+ * Epoch ms; `end` is missing on the part in use.
+ */
+export interface Segment {
+  side: 'left' | 'right' | 'bottle'
+  start: number
+  end?: number | null
+  /** Break time taken off this side. */
+  pausedMs?: number
+}
+
 export type EntryType = 'sleep' | 'feed' | 'diaper' | 'pump' | 'growth' | 'health' | 'activity' | 'note'
 
 /**
@@ -16,6 +28,11 @@ export interface Entry {
   pausedMs?: number
   /** Epoch ms. Set while a running timer is paused: when the current pause began. */
   pausedAt?: number
+  /**
+   * Only on a session with more than one part (sides, or breast then bottle): each part in order. `side` is the
+   * last breast side used, and `pausedMs` is the segments' break time plus any gaps between parts.
+   */
+  segments?: Segment[]
   /** Sub-type: feed breast/bottle/solids, diaper wet/dirty/mixed/dry, health temperature/medicine… */
   kind?: string
   side?: 'left' | 'right' | 'both'
@@ -65,6 +82,8 @@ export interface Actions {
   remove: (entry: Entry) => void
   /** One-tap log (diaper, timer start…) with an undo toast. */
   log: (entry: Omit<Entry, 'id'>, message: string) => Entry
+  /** Saves a changed entry with an undo toast that puts `previous` back (e.g. a feed carried on with a top-up). */
+  change: (entry: Entry, previous: Entry, message: string) => void
   /** Opens the form for an existing entry. */
   edit: (entry: Entry) => void
   /** Opens the form for a new entry. */

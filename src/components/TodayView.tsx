@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { describe } from '../lib/describe'
-import { durationMs, finish, hasBreak, isRunning, kindLabel, pause, resume, sortNewestFirst, subtractBreak, TYPE_ORDER, TYPES } from '../lib/entries'
+import { describe, sidesText } from '../lib/describe'
+import { durationMs, finish, hasBreak, isRunning, kindLabel, pause, resume, sortNewestFirst, subtractBreak, switchSide, continueFeed, currentPart, TYPE_ORDER, TYPES } from '../lib/entries'
 import { sleepGaps } from '../lib/gaps'
 import { nextFeedDue } from '../lib/nextFeed'
 import { dailyStats, latest } from '../lib/stats'
@@ -59,22 +59,39 @@ export function TodayView({ entries, settings, now, actions }: Props) {
   const togglePause = (entry: Entry) =>
     actions.save(entry.pausedAt === undefined ? pause(entry, Date.now()) : resume(entry, Date.now()))
   const takeOff = (entry: Entry, minutes: number) => actions.save(subtractBreak(entry, minutes * MINUTE, Date.now()))
+  /**
+   * Starting within 15 minutes of a feed ending carries that feed on (a top-up, or the other side after a pause)
+   * rather than starting a new one; Undo puts it back as it was.
+   */
+  const continuable = finishedFeed
+  const carryOn = (part: 'left' | 'right' | 'bottle') => {
+    if (!continuable) return false
+    const label = part === 'bottle' ? 'Bottle top-up' : `${sideLabel(part)} side`
+    actions.change(continueFeed(continuable, part, Date.now()), continuable, `${label} added to the ${formatTime(continuable.start, settings.timeFormat)} feed`)
+    return true
+  }
   const startBottle = () => {
+    if (carryOn('bottle')) return
     actions.log({ type: 'feed', kind: 'bottle', milk: lastBottle?.milk, start: Date.now() }, 'Bottle timer started')
   }
-  /** Stopping a bottle opens it for the amount, suggesting the last bottle's. */
+  /** Stopping while the bottle is the part in use opens the feed for the amount, suggesting the last bottle's. */
   const stopFeed = (entry: Entry) => {
     const done = finish(entry, Date.now())
     actions.save(done)
-    if (done.kind === 'bottle') actions.edit({ ...done, amountMl: done.amountMl ?? lastBottle?.amountMl })
+    if (currentPart(done) === 'bottle') {
+      actions.edit({ ...done, amountMl: done.amountMl ?? lastBottle?.amountMl, milk: done.milk ?? lastBottle?.milk })
+    }
   }
   const startFeed = (side: Side) => {
+    if (carryOn(side)) return
     actions.log({ type: 'feed', kind: 'breast', side, start: Date.now() }, `Feeding on the ${side}`)
   }
-  const switchSide = (entry: Entry) => {
-    const at = Date.now()
-    actions.save(finish(entry, at))
-    actions.log({ type: entry.type, kind: entry.kind, side: entry.side === 'left' ? 'right' : 'left', start: at }, 'Switched sides')
+  /** Same feed or pump session, other side: one entry with a time per side. */
+  const changeSide = (entry: Entry) => actions.save(switchSide(entry, Date.now()))
+  /** " · Left 5m + Right 2m" on a running session that has switched sides. */
+  const sidesSoFar = (entry: Entry) => {
+    const sides = sidesText(entry, now)
+    return sides ? ` · ${sides}` : ''
   }
   const startPump = (side: PumpSide) => {
     actions.log({ type: 'pump', side, start: Date.now() }, side === 'both' ? 'Pumping both sides' : `Pumping on the ${side}`)
@@ -157,10 +174,12 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           title="Feed"
           subtitle={
             feed
-              ? `${feed.pausedAt !== undefined ? 'Paused · ' : ''}${feed.kind === 'bottle' ? 'Bottle' : `${sideLabel(feed.side)} side`} · since ${formatTime(feed.start, settings.timeFormat)}`
-              : lastBreast
-                ? `Next side: ${sideLabel(nextSide)} (last was ${sideLabel(lastBreast.side).toLowerCase()})`
-                : 'Breast (pick a side) or bottle'
+              ? `${feed.pausedAt !== undefined ? 'Paused · ' : ''}${currentPart(feed) === 'bottle' ? 'Bottle' : `${sideLabel(currentPart(feed))} side`} · since ${formatTime(feed.start, settings.timeFormat)}${sidesSoFar(feed)}`
+              : continuable
+                ? `Adds to the ${formatTime(continuable.start, settings.timeFormat)} feed if you start within 15 min`
+                : lastBreast
+                  ? `Next side: ${sideLabel(nextSide)} (last was ${sideLabel(lastBreast.side).toLowerCase()})`
+                  : 'Breast (pick a side) or bottle'
           }
           running={feed}
           now={now}
@@ -169,8 +188,8 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           {feed ? (
             <div className="row">
               <PauseButton entry={feed} onToggle={togglePause} />
-              {feed.kind === 'breast' && feed.side !== 'both' && (
-                <button className="btn grow" onClick={() => switchSide(feed)} aria-label={`Switch to ${feed.side === 'left' ? 'right' : 'left'} side`}>
+              {currentPart(feed) !== 'bottle' && feed.side !== 'both' && (
+                <button className="btn grow" onClick={() => changeSide(feed)} aria-label={`Switch to ${feed.side === 'left' ? 'right' : 'left'} side`}>
                   <Icon name="swap" /> {feed.side === 'left' ? 'Right' : 'Left'}
                 </button>
               )}
@@ -201,7 +220,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
           title="Pump"
           subtitle={
             pump
-              ? `${pump.pausedAt !== undefined ? 'Paused · ' : ''}${sideLabel(pump.side)} · since ${formatTime(pump.start, settings.timeFormat)}`
+              ? `${pump.pausedAt !== undefined ? 'Paused · ' : ''}${sideLabel(pump.side)} · since ${formatTime(pump.start, settings.timeFormat)}${sidesSoFar(pump)}`
               : lastPump?.side === 'both'
                 ? 'Last time: both sides'
                 : lastPump
@@ -216,7 +235,7 @@ export function TodayView({ entries, settings, now, actions }: Props) {
             <div className="row">
               <PauseButton entry={pump} onToggle={togglePause} />
               {pump.side !== 'both' && (
-                <button className="btn grow" onClick={() => switchSide(pump)} aria-label={`Switch to ${pump.side === 'left' ? 'right' : 'left'} side`}>
+                <button className="btn grow" onClick={() => changeSide(pump)} aria-label={`Switch to ${pump.side === 'left' ? 'right' : 'left'} side`}>
                   <Icon name="swap" /> {pump.side === 'left' ? 'Right' : 'Left'}
                 </button>
               )}

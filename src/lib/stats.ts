@@ -1,5 +1,5 @@
 import type { Entry } from '../types'
-import { durationMs } from './entries'
+import { breastTimeMs } from './entries'
 import { addDays, atHour, overlap } from './time'
 
 /** Sleep between these hours counts as night sleep; the rest are naps. */
@@ -77,12 +77,14 @@ export function dailyStats(entries: Entry[], days: number[], now: number): DaySt
       if (!startsToday) continue
       s.tracked = true
       if (e.type === 'feed') {
+        // One feed, counted by how it started; a breastfeed with a bottle top-up is one breast feed, but its
+        // bottle amount still adds to the day's bottle total and only the breast parts count as breastfeeding.
+        s.breastMs += breastTimeMs(e, now)
+        s.bottleMl += e.amountMl ?? 0
         if (e.kind === 'breast') {
           s.breast += 1
-          s.breastMs += durationMs(e, now)
         } else if (e.kind === 'bottle') {
           s.bottle += 1
-          s.bottleMl += e.amountMl ?? 0
         } else if (e.kind === 'solids') {
           s.solids += 1
         }

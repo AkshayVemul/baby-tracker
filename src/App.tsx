@@ -9,10 +9,10 @@ import { useBackToClose, useHashRoute } from './hooks/useHashRoute'
 import { useEntries } from './hooks/useEntries'
 import { useNow } from './hooks/useNow'
 import { updateHousehold, type Household, type HouseholdChanges } from './lib/db'
-import { isRunning, newEntry } from './lib/entries'
+import { isRunning, mergeFeeds, newEntry } from './lib/entries'
 import { loadSettings, newId, saveSettings } from './lib/storage'
 import { applyTheme, followSystemTheme } from './lib/theme'
-import { formatAge } from './lib/time'
+import { formatAge, MINUTE } from './lib/time'
 import type { Actions, Entry, Settings } from './types'
 
 type Tab = 'today' | 'history' | 'charts' | 'settings'
@@ -92,6 +92,10 @@ export default function App({ household, email, onHousehold }: Props) {
         setToast({ id: Date.now(), message, undo: () => drop(entry.id) })
         return entry
       },
+      change: (entry, previous, message) => {
+        save(entry)
+        setToast({ id: Date.now(), message, undo: () => save(previous) })
+      },
       edit: (entry) => setDraft({ entry, isNew: false }),
       create: (type, overrides) => setDraft({ entry: newEntry(type, Date.now(), overrides), isNew: true }),
     }
@@ -115,6 +119,23 @@ export default function App({ household, email, onHousehold }: Props) {
       )
     }
   }
+
+  // A saved feed can be merged into a feed that ended up to 30 minutes before it (e.g. a bottle top-up logged
+  // separately after a breastfeed).
+  const mergeTarget =
+    draft && !draft.isNew && draft.entry.type === 'feed' && draft.entry.end !== undefined
+      ? list
+          .filter(
+            (e) =>
+              e.id !== draft.entry.id &&
+              e.type === 'feed' &&
+              e.kind !== 'solids' &&
+              e.end !== undefined &&
+              e.end <= draft.entry.start + MINUTE &&
+              draft.entry.start - e.end <= 30 * MINUTE,
+          )
+          .sort((a, b) => b.end! - a.end!)[0]
+      : undefined
 
   const age = formatAge(settings.birthDate, now)
 
@@ -190,6 +211,22 @@ export default function App({ household, email, onHousehold }: Props) {
           }}
           onDelete={() => {
             actions.remove(draft.entry)
+            closeDraft()
+          }}
+          mergeWith={mergeTarget}
+          onMerge={() => {
+            if (!mergeTarget) return
+            const later = draft.entry
+            save(mergeFeeds(mergeTarget, later))
+            drop(later.id)
+            setToast({
+              id: Date.now(),
+              message: 'Merged into one feed',
+              undo: () => {
+                save(mergeTarget)
+                save(later)
+              },
+            })
             closeDraft()
           }}
         />

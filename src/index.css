@@ -1288,3 +1288,19 @@ code {
 .inline-icon {
   vertical-align: -2px;
 }
+
+.merge-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.merge-hint .btn {
+  white-space: normal;
+  text-align: left;
+  min-height: 36px;
+}

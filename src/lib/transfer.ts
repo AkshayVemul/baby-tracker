@@ -1,4 +1,5 @@
 import type { Entry, Settings } from '../types'
+import { sidesText } from './describe'
 import { durationMs, TYPES } from './entries'
 
 interface Backup {
@@ -33,7 +34,7 @@ export function fromBackup(text: string): { entries: Entry[]; settings?: Setting
 }
 
 const CSV_COLUMNS = [
-  'type', 'kind', 'start', 'end', 'durationMin', 'breakMin', 'side', 'amountMl', 'milk', 'food',
+  'type', 'kind', 'start', 'end', 'durationMin', 'breakMin', 'side', 'sides', 'amountMl', 'milk', 'food',
   'weightKg', 'heightCm', 'headCm', 'tempC', 'medicine', 'dose', 'notes',
 ] as const
 
@@ -54,6 +55,7 @@ export function toCsv(entries: Entry[]): string {
         if (col === 'end') return csvCell(iso(e.end))
         if (col === 'durationMin') return csvCell(e.end === undefined ? undefined : Math.round(durationMs(e, e.end) / 60000))
         if (col === 'breakMin') return csvCell(e.pausedMs ? Math.round(e.pausedMs / 60000) : undefined)
+        if (col === 'sides') return csvCell(sidesText(e, e.end ?? e.start))
         return csvCell(e[col])
       }).join(','),
     )

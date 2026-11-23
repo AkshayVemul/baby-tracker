@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry } from '../types'
-import { durationMs, finish, isRunning, pause, resume, subtractBreak } from './entries'
+import { adjustBreaks, breastTimeMs, continueFeed, currentPart, durationMs, finish, isRunning, mergeFeeds, pause, resume, sideTimes, subtractBreak, switchSide } from './entries'
 import { MINUTE } from './time'
 
 const t0 = new Date(2026, 10, 18, 9).getTime()
@@ -34,5 +34,91 @@ describe('pausable timers', () => {
   it('treats a pump log without an end as running and one with end = start as finished', () => {
     expect(isRunning({ id: 'p', type: 'pump', start: t0 })).toBe(true)
     expect(isRunning({ id: 'p', type: 'pump', start: t0, end: t0 })).toBe(false)
+  })
+})
+
+describe('switching sides', () => {
+  const total = (e: Entry, now: number) => (sideTimes(e, now) ?? []).reduce((sum, s) => sum + s.ms, 0)
+
+  it('keeps one entry with a time per side, which add up to the whole feed', () => {
+    const switched = switchSide(feed, t0 + 12 * MINUTE)
+    expect(switched).toMatchObject({ id: 'a', side: 'right', start: t0 })
+    expect(isRunning(switched)).toBe(true)
+    const done = finish(switched, t0 + 21 * MINUTE)
+    expect(sideTimes(done, t0 + 60 * MINUTE)).toEqual([
+      { side: 'left', ms: 12 * MINUTE },
+      { side: 'right', ms: 9 * MINUTE },
+    ])
+    expect(durationMs(done, t0 + 60 * MINUTE)).toBe(21 * MINUTE)
+  })
+
+  it('counts a pause against the side it happened on, including one still open when switching or stopping', () => {
+    let e = pause(feed, t0 + 5 * MINUTE) // left: 5m fed, then paused
+    e = switchSide(e, t0 + 8 * MINUTE) // 3m pause on the left, now on the right
+    e = pause(e, t0 + 14 * MINUTE) // right: 6m fed, then paused
+    e = finish(e, t0 + 16 * MINUTE) // 2m pause on the right
+    const now = t0 + 60 * MINUTE
+    expect(sideTimes(e, now)).toEqual([
+      { side: 'left', ms: 5 * MINUTE },
+      { side: 'right', ms: 6 * MINUTE },
+    ])
+    expect(e.pausedMs).toBe(5 * MINUTE)
+    expect(durationMs(e, now)).toBe(11 * MINUTE)
+  })
+
+  it('takes break time off the latest side first, spilling into the earlier one, and can give it back', () => {
+    const done = finish(switchSide(feed, t0 + 12 * MINUTE), t0 + 14 * MINUTE) // left 12m, right 2m
+    const now = t0 + 60 * MINUTE
+    const minus5 = subtractBreak(done, 5 * MINUTE, now)
+    expect(sideTimes(minus5, now)).toEqual([
+      { side: 'left', ms: 9 * MINUTE },
+      { side: 'right', ms: 0 },
+    ])
+    expect(durationMs(minus5, now)).toBe(total(minus5, now))
+    const back = adjustBreaks(minus5, -4 * MINUTE, now)
+    expect(durationMs(back, now)).toBe(13 * MINUTE)
+    expect(total(back, now)).toBe(13 * MINUTE)
+  })
+
+  it('leaves a single-side session as before', () => {
+    expect(sideTimes(finish(feed, t0 + 10 * MINUTE), t0)).toBeNull()
+  })
+})
+
+describe('bottle top-ups', () => {
+  const now = t0 + 2 * 60 * MINUTE
+
+  it('carries a just-finished breastfeed on with a bottle, the gap counting as a break', () => {
+    const breastfed = finish(switchSide(feed, t0 + 10 * MINUTE), t0 + 18 * MINUTE) // left 10m, right 8m
+    const topUp = continueFeed(breastfed, 'bottle', t0 + 21 * MINUTE) // 3 minutes later
+    expect(isRunning(topUp)).toBe(true)
+    expect(currentPart(topUp)).toBe('bottle')
+    expect(topUp.side).toBe('right') // still the last breast side, for "next side"
+    const done = { ...finish(topUp, t0 + 29 * MINUTE), amountMl: 60 }
+    expect(sideTimes(done, now)).toEqual([
+      { side: 'left', ms: 10 * MINUTE },
+      { side: 'right', ms: 8 * MINUTE },
+      { side: 'bottle', ms: 8 * MINUTE },
+    ])
+    expect(durationMs(done, now)).toBe(26 * MINUTE)
+    expect(breastTimeMs(done, now)).toBe(18 * MINUTE)
+  })
+
+  it('merges a separately logged bottle into the breastfeed before it', () => {
+    const breastfed = finish(feed, t0 + 15 * MINUTE)
+    const bottle: Entry = { id: 'b', type: 'feed', kind: 'bottle', milk: 'formula', amountMl: 60, start: t0 + 20 * MINUTE, end: t0 + 28 * MINUTE, notes: 'sleepy' }
+    const merged = mergeFeeds({ ...breastfed, notes: 'good latch' }, bottle)
+    expect(merged).toMatchObject({ id: 'a', kind: 'breast', side: 'left', start: t0, end: t0 + 28 * MINUTE, amountMl: 60, milk: 'formula', notes: 'good latch · sleepy' })
+    expect(sideTimes(merged, now)).toEqual([
+      { side: 'left', ms: 15 * MINUTE },
+      { side: 'bottle', ms: 8 * MINUTE },
+    ])
+    expect(durationMs(merged, now)).toBe(23 * MINUTE)
+  })
+
+  it('remembers the side the merged feed last used, so the next feed starts on the other one', () => {
+    const bothSides = finish(switchSide(feed, t0 + 10 * MINUTE), t0 + 20 * MINUTE)
+    const bottle: Entry = { id: 'b', type: 'feed', kind: 'bottle', amountMl: 60, start: t0 + 25 * MINUTE, end: t0 + 30 * MINUTE }
+    expect(mergeFeeds(bothSides, bottle).side).toBe('right')
   })
 })

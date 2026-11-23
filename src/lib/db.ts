@@ -1,4 +1,4 @@
-import type { Entry, EntryType } from '../types'
+import type { Entry, EntryType, Segment } from '../types'
 import type { Op, SendResult } from './outbox'
 import { supabase } from './supabase'
 
@@ -25,6 +25,7 @@ export interface EntryRow {
   end_at: string | null
   paused_ms: number | null
   paused_at: string | null
+  segments: Segment[] | null
   kind: string | null
   side: Entry['side'] | null
   amount_ml: number | null
@@ -45,6 +46,7 @@ const PAGE = 1000
 const FIELDS = {
   kind: 'kind',
   pausedMs: 'paused_ms',
+  segments: 'segments',
   side: 'side',
   amountMl: 'amount_ml',
   milk: 'milk',
