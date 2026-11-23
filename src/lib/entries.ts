@@ -212,6 +212,44 @@ export function mergeFeeds(earlier: Entry, later: Entry): Entry {
   return JSON.parse(JSON.stringify(merged)) as Entry
 }
 
+/** What's wrong with a feed's or pump's parts (in order), if anything; only the last one can still be running. */
+export function partsProblem(parts: Segment[]): string | undefined {
+  for (const [i, part] of parts.entries()) {
+    if (Number.isNaN(part.start) || Number.isNaN(part.end)) return 'Pick a start and an end time for every part.'
+    if (part.end == null && i < parts.length - 1) return 'Only the last part can be left without an end time.'
+    if (part.end != null && part.end < part.start) return `Part ${i + 1} ends before it starts.`
+    const previousEnd = parts[i - 1]?.end
+    if (previousEnd != null && part.start < previousEnd) return `Part ${i + 1} starts before part ${i} ends.`
+  }
+  return undefined
+}
+
+/**
+ * The entry made of `parts`, as edited by hand: it starts with the first and ends with the last, and the gaps between
+ * them count as breaks. A feed's kind follows its first part and its side is the last breast side; a single part is
+ * a plain entry again.
+ */
+export function withParts(entry: Entry, parts: Segment[]): Entry {
+  const first = parts[0]
+  const last = parts[parts.length - 1]
+  const next: Entry = { ...entry, start: first.start, end: last.end ?? undefined }
+  if (entry.type === 'feed') {
+    next.kind = first.side === 'bottle' ? 'bottle' : 'breast'
+    next.side = parts.findLast((p) => p.side !== 'bottle')?.side as Entry['side']
+  } else {
+    next.side = last.side as Entry['side']
+  }
+  if (parts.length === 1) {
+    delete next.segments
+    next.pausedMs = first.pausedMs
+  } else {
+    const gaps = parts.slice(1).reduce((sum, part, i) => sum + Math.max(0, part.start - (parts[i].end ?? part.start)), 0)
+    next.segments = parts
+    next.pausedMs = parts.reduce((sum, part) => sum + (part.pausedMs ?? 0), 0) + gaps
+  }
+  return JSON.parse(JSON.stringify({ ...next, pausedMs: next.pausedMs || undefined })) as Entry
+}
+
 /** Time at the breast: the breast parts of a mixed feed, or all of a plain breastfeed. */
 export function breastTimeMs(entry: Entry, now: number): number {
   const parts = sideTimes(entry, now)

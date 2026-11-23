@@ -82,6 +82,27 @@ export function toLocalInput(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** Value for `<input type="time">`: "21:05". */
+export function toTimeInput(ms: number): string {
+  return toLocalInput(ms).slice(11)
+}
+
+/**
+ * The moment at time of day `value` ("21:05") closest to `near`: on its day, the day before or the day after. So a
+ * part of a feed that runs past midnight lands on the next day without picking a date. NaN when empty.
+ */
+export function nearestTime(value: string, near: number): number {
+  const [hours, minutes] = value.split(':').map(Number)
+  if (!value || Number.isNaN(hours) || Number.isNaN(minutes)) return Number.NaN
+  const day = startOfDay(near)
+  const candidates = [-1, 0, 1].map((offset) => {
+    const d = new Date(addDays(day, offset))
+    d.setHours(hours, minutes, 0, 0)
+    return d.getTime()
+  })
+  return candidates.reduce((best, t) => (Math.abs(t - near) < Math.abs(best - near) ? t : best))
+}
+
 /** Value for `<input type="date">`. */
 export function toDateInput(ms: number): string {
   return toLocalInput(ms).slice(0, 10)

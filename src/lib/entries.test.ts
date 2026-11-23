@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry } from '../types'
-import { adjustBreaks, breastTimeMs, continueFeed, currentPart, durationMs, finish, isRunning, mergeFeeds, pause, resume, sideTimes, subtractBreak, switchSide } from './entries'
+import { adjustBreaks, breastTimeMs, continueFeed, currentPart, durationMs, finish, isRunning, mergeFeeds, partsProblem, pause, resume, sideTimes, subtractBreak, switchSide, withParts } from './entries'
 import { MINUTE } from './time'
 
 const t0 = new Date(2026, 10, 18, 9).getTime()
@@ -120,5 +120,33 @@ describe('bottle top-ups', () => {
     const bothSides = finish(switchSide(feed, t0 + 10 * MINUTE), t0 + 20 * MINUTE)
     const bottle: Entry = { id: 'b', type: 'feed', kind: 'bottle', amountMl: 60, start: t0 + 25 * MINUTE, end: t0 + 30 * MINUTE }
     expect(mergeFeeds(bothSides, bottle).side).toBe('right')
+  })
+})
+
+describe('editing parts by hand', () => {
+  const left = { side: 'left' as const, start: t0, end: t0 + 10 * MINUTE }
+  const right = { side: 'right' as const, start: t0 + 12 * MINUTE, end: t0 + 20 * MINUTE, pausedMs: MINUTE }
+  const bottle = { side: 'bottle' as const, start: t0 + 25 * MINUTE, end: t0 + 30 * MINUTE }
+
+  it('spans the parts, with the gaps between them as breaks', () => {
+    const fed = withParts({ id: 'a', type: 'feed', kind: 'breast', start: 0 }, [left, right, bottle])
+    expect(fed).toMatchObject({ kind: 'breast', side: 'right', start: t0, end: t0 + 30 * MINUTE, pausedMs: 8 * MINUTE })
+    expect(durationMs(fed, t0)).toBe(22 * MINUTE)
+    expect(breastTimeMs(fed, t0)).toBe(17 * MINUTE)
+  })
+
+  it('a feed that starts with the bottle is a bottle feed, and a single part is a plain entry again', () => {
+    expect(withParts({ id: 'a', type: 'feed', start: 0 }, [bottle, { ...left, start: t0 + 31 * MINUTE, end: t0 + 40 * MINUTE }])).toMatchObject({ kind: 'bottle', side: 'left' })
+    const single = withParts({ id: 'a', type: 'pump', start: 0, segments: [left, right], pausedMs: 3 * MINUTE }, [right])
+    expect(single).toEqual({ id: 'a', type: 'pump', side: 'right', start: t0 + 12 * MINUTE, end: t0 + 20 * MINUTE, pausedMs: MINUTE })
+  })
+
+  it('reports parts that overlap, run backwards or are missing an end', () => {
+    expect(partsProblem([left, right])).toBeUndefined()
+    expect(partsProblem([left, { ...right, start: t0 + 5 * MINUTE }])).toBe('Part 2 starts before part 1 ends.')
+    expect(partsProblem([{ ...left, end: t0 - MINUTE }])).toBe('Part 1 ends before it starts.')
+    expect(partsProblem([{ side: 'left', start: t0 }, right])).toBe('Only the last part can be left without an end time.')
+    expect(partsProblem([left, { side: 'right', start: t0 + 12 * MINUTE }])).toBeUndefined()
+    expect(partsProblem([left, { ...right, end: Number.NaN }])).toBe('Pick a start and an end time for every part.')
   })
 })

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { describe, sidesText } from '../lib/describe'
-import { adjustBreaks, defaultKind, isPausable, isTimed, MILKS, SIDES, TYPE_ORDER, TYPES, type Option } from '../lib/entries'
-import { formatDuration, formatTime, fromLocalInput, MINUTE, toLocalInput } from '../lib/time'
+import { describe } from '../lib/describe'
+import { defaultKind, durationMs, hasBreak, isPausable, isTimed, MILKS, partsProblem, SIDES, TYPE_ORDER, TYPES, withParts, type Option } from '../lib/entries'
+import { formatDuration, formatTime, fromLocalInput, MINUTE, nearestTime, toLocalInput, toTimeInput } from '../lib/time'
 import { units, type Measure } from '../lib/units'
-import type { Entry, EntryType, Settings } from '../types'
+import type { Entry, EntryType, Segment, Settings } from '../types'
 import { Icon } from './Icon'
 
 interface Props {
@@ -21,6 +21,32 @@ interface Props {
 /** Measurements are edited as text in the user's units and converted back to metric on save. */
 const MEASURES = { amount: 'volume', weight: 'weight', height: 'length', head: 'length', temp: 'temp' } as const
 type MeasureField = keyof typeof MEASURES
+
+/** One part of a feed or pump being edited: a side or the bottle, with its times as typed ("21:05"). */
+interface PartDraft {
+  side: Segment['side']
+  start: string
+  end: string
+  /** The part as saved, so untouched times keep their seconds and its pauses carry over. */
+  original?: Segment
+}
+
+const FEED_PARTS: Option[] = [
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+  { value: 'bottle', label: 'Bottle' },
+]
+const PUMP_PARTS = FEED_PARTS.slice(0, 2)
+
+function toDraft(segment: Segment): PartDraft {
+  return { side: segment.side, start: toTimeInput(segment.start), end: segment.end == null ? '' : toTimeInput(segment.end), original: segment }
+}
+
+/** The part to add after `previous`: the other side (after a bottle, the left), for 5 minutes from where it ended. */
+function nextDraft(previous: Segment): PartDraft {
+  const from = previous.end ?? previous.start
+  return { side: previous.side === 'left' ? 'right' : 'left', start: toTimeInput(from), end: toTimeInput(from + 5 * MINUTE) }
+}
 
 const METRIC_FIELD: Record<MeasureField, keyof Entry> = {
   amount: 'amountMl',
@@ -55,17 +81,24 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
   // Whole minutes of break time (pauses, unlatching) taken off a breastfeed or pump session.
   const [breaks, setBreaks] = useState(initial.pausedMs ? String(Math.round(initial.pausedMs / MINUTE)) : '')
   const [error, setError] = useState('')
+  // A feed or pump in parts (sides and bottle top-ups), each with its own times; null while it's a single part.
+  const [parts, setParts] = useState<PartDraft[] | null>(() =>
+    initial.segments && initial.segments.length > 1 ? initial.segments.map(toDraft) : null,
+  )
 
   useEffect(() => {
     dialog.current?.showModal()
   }, [])
 
-  // A breastfeed with a bottle top-up as one of its parts takes the bottle's amount and milk too.
-  const hasBottlePart = initial.segments?.some((segment) => segment.side === 'bottle') === true
   const config = TYPES[type]
   const timed = isTimed({ type, kind })
+  const partsAllowed = (type === 'feed' && (kind === 'breast' || kind === 'bottle')) || type === 'pump'
+  const activeParts = partsAllowed ? parts : null
+  // A breastfeed with a bottle top-up as one of its parts takes the bottle's amount and milk too.
+  const hasBottlePart = activeParts?.some((part) => part.side === 'bottle') === true
   const show = {
-    side: (type === 'feed' && kind === 'breast') || type === 'pump',
+    kind: !(activeParts && type === 'feed'),
+    side: ((type === 'feed' && kind === 'breast') || type === 'pump') && !activeParts,
     amount: (type === 'feed' && (kind === 'bottle' || hasBottlePart)) || type === 'pump',
     milk: type === 'feed' && (kind === 'bottle' || hasBottlePart),
     food: type === 'feed' && kind === 'solids',
@@ -76,14 +109,89 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
   // Time pickers only hold whole minutes; an untouched field keeps the exact original time (with its seconds),
   // so saving e.g. just a pump amount doesn't shorten the session.
   const [openedAt] = useState(Date.now)
-  // A session that switched sides keeps its per-side times; the side chips give way to the breakdown.
-  const sessionSegments =
-    initial.segments && initial.segments.length > 1 && type === initial.type && kind === initial.kind ? initial.segments : undefined
   const startMs = start === toLocalInput(initial.start) ? initial.start : fromLocalInput(start)
   const endMs = initial.end !== undefined && end === toLocalInput(initial.end) ? initial.end : fromLocalInput(end)
   const pausable = isPausable({ type, kind })
   const breakMs = pausable && Number(breaks) > 0 ? Number(breaks) * MINUTE : 0
   const duration = timed && !Number.isNaN(startMs) && !Number.isNaN(endMs) ? endMs - startMs - breakMs : null
+
+  /**
+   * The parts as times: each typed time is taken on whichever day puts it nearest the time before it, so a feed past
+   * midnight needs no dates. Only the last part may be left without an end (still running).
+   */
+  const resolveParts = (drafts: PartDraft[]): Segment[] => {
+    let previous = initial.start
+    // A typed time in the same minute as the time before it (which may have seconds) means right after it.
+    const typed = (value: string) => {
+      const at = nearestTime(value, previous)
+      return at < previous && previous - at < MINUTE ? previous : at
+    }
+    return drafts.map((draft, i) => {
+      const { original } = draft
+      const start = original && draft.start === toTimeInput(original.start) ? original.start : typed(draft.start)
+      if (!Number.isNaN(start)) previous = start
+      const end =
+        draft.end === ''
+          ? i === drafts.length - 1
+            ? undefined
+            : Number.NaN
+          : original?.end != null && draft.end === toTimeInput(original.end)
+            ? original.end
+            : typed(draft.end)
+      if (end !== undefined && !Number.isNaN(end)) previous = end
+      const part: Segment = { side: draft.side, start }
+      if (end !== undefined) part.end = end
+      const paused = end === undefined ? original?.pausedMs : Math.min(original?.pausedMs ?? 0, Math.max(0, end - start))
+      if (paused) part.pausedMs = paused
+      return part
+    })
+  }
+  const resolvedParts = activeParts ? resolveParts(activeParts) : null
+  const sortedParts = resolvedParts?.toSorted((a, b) => a.start - b.start)
+  const partsEntry =
+    sortedParts && !partsProblem(sortedParts) ? withParts({ id: initial.id, type, kind, start: 0 }, sortedParts) : null
+
+  /** Changing the parts also clears a complaint about them. */
+  const updateParts = (next: PartDraft[] | null) => {
+    setParts(next)
+    setError('')
+  }
+
+  const changePart = (index: number, change: Partial<PartDraft>) => {
+    if (activeParts) updateParts(activeParts.map((part, i) => (i === index ? { ...part, ...change } : part)))
+  }
+
+  /** Splits a single feed or pump into parts: what's in the form so far, and another part after it. */
+  const addPart = () => {
+    if (activeParts && resolvedParts) {
+      updateParts([...activeParts, nextDraft(resolvedParts[resolvedParts.length - 1])])
+      return
+    }
+    const first: Segment = {
+      side: type === 'feed' && kind === 'bottle' ? 'bottle' : side === 'right' ? 'right' : 'left',
+      start: startMs,
+      end: endMs,
+    }
+    if (breakMs) first.pausedMs = breakMs
+    updateParts([toDraft(first), nextDraft(first)])
+  }
+
+  /** Removing all but one part makes it a plain feed or pump again, with that part's times. */
+  const removePart = (index: number) => {
+    if (!activeParts) return
+    const rest = activeParts.filter((_, i) => i !== index)
+    if (rest.length > 1) {
+      updateParts(rest)
+      return
+    }
+    const [only] = resolveParts(rest)
+    updateParts(null)
+    if (!Number.isNaN(only.start)) setStart(toLocalInput(only.start))
+    setEnd(only.end == null || Number.isNaN(only.end) ? '' : toLocalInput(only.end))
+    setBreaks(only.pausedMs ? String(Math.round(only.pausedMs / MINUTE)) : '')
+    if (type === 'feed') setKind(only.side === 'bottle' ? 'bottle' : 'breast')
+    if (only.side !== 'bottle') setSide(only.side)
+  }
 
   /** Moving the start past the end pushes the end to 5 minutes after it, so the end never needs scrolling back. */
   const changeStart = (value: string) => {
@@ -97,14 +205,20 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
   const changeType = (next: EntryType) => {
     setType(next)
     setKind(defaultKind(next))
+    setParts(null)
     setError('')
   }
 
   const submit = () => {
-    if (Number.isNaN(startMs)) return setError('Pick a start time.')
-    if (timed && !Number.isNaN(endMs) && endMs < startMs) return setError('The end time is before the start time.')
-    if (pausable && breaks.trim() && !(Number(breaks) >= 0)) return setError('Breaks must be a number of minutes.')
-    if (duration !== null && duration < 0) return setError('Breaks are longer than the session.')
+    if (sortedParts) {
+      const problem = partsProblem(sortedParts)
+      if (problem) return setError(problem)
+    } else {
+      if (Number.isNaN(startMs)) return setError('Pick a start time.')
+      if (timed && !Number.isNaN(endMs) && endMs < startMs) return setError('The end time is before the start time.')
+      if (pausable && breaks.trim() && !(Number(breaks) >= 0)) return setError('Breaks must be a number of minutes.')
+      if (duration !== null && duration < 0) return setError('Breaks are longer than the session.')
+    }
 
     const metric: Partial<Record<MeasureField, number>> = {}
     for (const field of Object.keys(MEASURES) as MeasureField[]) {
@@ -119,33 +233,24 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
     }
     if (show.temp && metric.temp === undefined) return setError('Enter the temperature.')
 
-    const entry: Entry = { id: initial.id, type, start: startMs }
+    let entry: Entry = { id: initial.id, type, start: startMs }
     if (config.kinds) entry.kind = kind
-    if (timed && !Number.isNaN(endMs)) entry.end = endMs
-    if (pausable) {
-      let paused = breakMs
-      if (initial.pausedAt !== undefined) {
-        // Still paused and running: keep the open pause. Given an end time: the pause lasted until then.
-        if (entry.end === undefined) entry.pausedAt = initial.pausedAt
-        else paused += Math.max(0, entry.end - initial.pausedAt)
+    if (sortedParts) {
+      entry = withParts(entry, sortedParts)
+      // Still running and paused: keep the open pause.
+      if (entry.end === undefined && initial.pausedAt !== undefined) entry.pausedAt = initial.pausedAt
+    } else {
+      if (timed && !Number.isNaN(endMs)) entry.end = endMs
+      if (pausable) {
+        let paused = breakMs
+        if (initial.pausedAt !== undefined) {
+          // Still paused and running: keep the open pause. Given an end time: the pause lasted until then.
+          if (entry.end === undefined) entry.pausedAt = initial.pausedAt
+          else paused += Math.max(0, entry.end - initial.pausedAt)
+        }
+        if (paused > 0) entry.pausedMs = paused
       }
-      if (paused > 0) entry.pausedMs = paused
-    }
-    if (show.side && side) entry.side = side
-    if (sessionSegments) {
-      // Keep the sides lined up with the edited start, end and breaks: the first side starts with the session,
-      // the last ends with it, and a change in breaks goes to the latest side first.
-      const segments = sessionSegments.map((segment) => ({ ...segment }))
-      segments[0].start = entry.start
-      segments[segments.length - 1].end = entry.end
-      Object.assign(
-        entry,
-        adjustBreaks(
-          { ...entry, side: initial.side, pausedMs: initial.pausedMs, segments },
-          (entry.pausedMs ?? 0) - (initial.pausedMs ?? 0),
-          Date.now(),
-        ),
-      )
+      if (show.side && side) entry.side = side
     }
     if (show.amount && metric.amount !== undefined) entry.amountMl = Math.round(metric.amount)
     if (show.milk && milk) entry.milk = milk
@@ -213,15 +318,71 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
             onChange={(v) => changeType(v as EntryType)}
           />
         )}
-        {config.kinds && <Chips label="Kind" options={config.kinds} value={kind} onChange={setKind} />}
-        {show.side && sessionSegments && (
-          <div className="field">
-            <span>Sides</span>
-            <p className="small">{sidesText(initial, openedAt)}</p>
-          </div>
+        {config.kinds && show.kind && <Chips label="Kind" options={config.kinds} value={kind} onChange={setKind} />}
+        {show.side && <Chips label="Side" options={SIDES} value={side} onChange={(v) => setSide(v as Entry['side'])} />}
+        {activeParts && resolvedParts && (
+          <fieldset className="field">
+            <legend>{type === 'pump' ? 'Sides' : 'Sides and bottle'}</legend>
+            <ol className="parts">
+              {activeParts.map((part, i) => {
+                const resolved = resolvedParts[i]
+                const ms =
+                  resolved.end == null || Number.isNaN(resolved.end) || Number.isNaN(resolved.start)
+                    ? null
+                    : resolved.end - resolved.start - (resolved.pausedMs ?? 0)
+                return (
+                  // Parts have no ids; the list only changes by adding at the end or removing one.
+                  <li key={`${i}-${activeParts.length}`} className="part">
+                    <div className="chips" role="group" aria-label={`Part ${i + 1}`}>
+                      {(type === 'pump' ? PUMP_PARTS : FEED_PARTS).map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          className={o.value === part.side ? 'chip active' : 'chip'}
+                          aria-pressed={o.value === part.side}
+                          onClick={() => changePart(i, { side: o.value as Segment['side'] })}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="part-times">
+                      <input
+                        type="time"
+                        aria-label={`Part ${i + 1} start`}
+                        value={part.start}
+                        onChange={(e) => changePart(i, { start: e.target.value })}
+                      />
+                      <span aria-hidden="true">–</span>
+                      <input
+                        type="time"
+                        aria-label={`Part ${i + 1} end`}
+                        value={part.end}
+                        onChange={(e) => changePart(i, { end: e.target.value })}
+                      />
+                    </span>
+                    <span className="muted small part-length">
+                      {ms === null ? (part.end === '' ? 'running' : '') : formatDuration(Math.max(0, ms))}
+                      {resolved.pausedMs ? ` · ${formatDuration(resolved.pausedMs)} paused` : ''}
+                    </span>
+                    <button type="button" className="icon-btn" aria-label={`Remove part ${i + 1}`} onClick={() => removePart(i)}>
+                      <Icon name="trash" />
+                    </button>
+                  </li>
+                )
+              })}
+            </ol>
+          </fieldset>
         )}
-        {show.side && !sessionSegments && (
-          <Chips label="Side" options={SIDES} value={side} onChange={(v) => setSide(v as Entry['side'])} />
+        {partsAllowed && !(type === 'pump' && side === 'both' && !activeParts) && (
+          <button
+            type="button"
+            className="btn small add-part"
+            disabled={activeParts ? resolvedParts?.at(-1)?.end == null : Number.isNaN(startMs) || Number.isNaN(endMs)}
+            onClick={addPart}
+          >
+            <Icon name="plus" /> {type === 'pump' ? 'Add a side' : 'Add a side or bottle'}
+          </button>
         )}
         {show.milk && <Chips label="Milk" options={MILKS} value={milk} onChange={(v) => setMilk(v as Entry['milk'])} />}
 
@@ -242,30 +403,39 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
           </div>
         )}
 
-        <div className="time-row">
-          <label className="field">
-            <span>{timed ? 'Start' : 'Time'}</span>
-            <input type="datetime-local" value={start} onChange={(e) => changeStart(e.target.value)} required />
-          </label>
-          {timed && (
+        {!activeParts && (
+          <div className="time-row">
             <label className="field">
-              <span>End</span>
-              <span className="input-with-btn">
-                <input type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
-                <button type="button" className="btn small" onClick={() => setEnd(toLocalInput(Date.now()))}>
-                  Now
-                </button>
-              </span>
+              <span>{timed ? 'Start' : 'Time'}</span>
+              <input type="datetime-local" value={start} onChange={(e) => changeStart(e.target.value)} required />
             </label>
-          )}
-        </div>
-        {pausable && (
+            {timed && (
+              <label className="field">
+                <span>End</span>
+                <span className="input-with-btn">
+                  <input type="datetime-local" value={end} min={start} onChange={(e) => setEnd(e.target.value)} />
+                  <button type="button" className="btn small" onClick={() => setEnd(toLocalInput(Date.now()))}>
+                    Now
+                  </button>
+                </span>
+              </label>
+            )}
+          </div>
+        )}
+        {pausable && !activeParts && (
           <label className="field">
             <span>Breaks (minutes not {type === 'pump' ? 'pumping' : 'feeding'})</span>
             <input inputMode="numeric" placeholder="0" value={breaks} onChange={(e) => setBreaks(e.target.value)} />
           </label>
         )}
-        {timed && (
+        {activeParts && (
+          <p className="muted small">
+            {partsEntry
+              ? `${formatTime(partsEntry.start, settings.timeFormat)}${partsEntry.end === undefined ? '' : ` – ${formatTime(partsEntry.end, settings.timeFormat)}`} · ${type === 'pump' ? 'pumping' : 'feeding'} ${formatDuration(durationMs(partsEntry, openedAt))}${hasBreak(partsEntry) ? `, ${formatDuration(partsEntry.pausedMs ?? 0)} of breaks` : ''}`
+              : 'Each part needs a start and end, one after another.'}
+          </p>
+        )}
+        {timed && !activeParts && (
           <p className="muted small">
             {duration !== null && duration >= 0
               ? `Duration ${formatDuration(duration)}${breakMs ? ` after ${formatDuration(breakMs)} of breaks` : ''}`

@@ -1304,3 +1304,50 @@ code {
   text-align: left;
   min-height: 36px;
 }
+
+/* A feed or pump in parts: each side or bottle with its own times. */
+.parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* Side buttons, length and remove on the first line; the times below. */
+.part-length {
+  order: 1;
+  flex: 1;
+  text-align: right;
+}
+
+.part .icon-btn {
+  order: 2;
+}
+
+.part-times {
+  order: 3;
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.part-times input {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-part {
+  align-self: flex-start;
+}
