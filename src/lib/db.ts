@@ -1,4 +1,4 @@
-import type { Entry, EntryType, Segment } from '../types'
+import type { Entry, EntryType, Segment, Todo } from '../types'
 import type { Op, SendResult } from './outbox'
 import { supabase } from './supabase'
 
@@ -11,10 +11,12 @@ export interface Household {
   /** Shared by all members: minutes between feeds for "Next feed" (0 = off), counted from start or end. */
   feed_interval_min: number
   feed_interval_from: 'start' | 'end'
+  /** Shared to-do list; missing on a household cached on this phone before to-dos existed. */
+  todos?: Todo[]
 }
 
 /** Household fields members edit from Settings. */
-export type HouseholdChanges = Partial<Pick<Household, 'baby_name' | 'birth_date' | 'feed_interval_min' | 'feed_interval_from'>>
+export type HouseholdChanges = Partial<Pick<Household, 'baby_name' | 'birth_date' | 'feed_interval_min' | 'feed_interval_from' | 'todos'>>
 
 /** A row of `public.entries`; nullable columns are the optional Entry fields. */
 export interface EntryRow {
@@ -105,7 +107,7 @@ export async function fetchMyHousehold(): Promise<Household | null> {
   const rows = check(
     await supabase
       .from('households')
-      .select('id, baby_name, birth_date, invite_code, feed_interval_min, feed_interval_from')
+      .select('id, baby_name, birth_date, invite_code, feed_interval_min, feed_interval_from, todos')
       .order('created_at')
       .limit(1),
   )

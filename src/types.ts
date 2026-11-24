@@ -10,7 +10,8 @@ export interface Segment {
   pausedMs?: number
 }
 
-export type EntryType = 'sleep' | 'feed' | 'diaper' | 'pump' | 'growth' | 'health' | 'activity' | 'note'
+/** `todo` entries are ticks on the to-do list (see lib/todos.ts), kept out of the log. */
+export type EntryType = 'sleep' | 'feed' | 'diaper' | 'pump' | 'growth' | 'health' | 'activity' | 'note' | 'todo'
 
 /**
  * One logged event. All types share this flat shape so a single form can edit any of them;
@@ -88,4 +89,21 @@ export interface Actions {
   edit: (entry: Entry) => void
   /** Opens the form for a new entry. */
   create: (type: EntryType, overrides?: Partial<Entry>) => void
+}
+
+/** How often a to-do comes up: every day, every few days counted from a date (yyyy-mm-dd), or on some weekdays. */
+export type Repeat =
+  | { every: 'day' }
+  | { every: 'days'; days: number; from: string }
+  /** 0 = Sunday … 6 = Saturday. */
+  | { every: 'week'; weekdays: number[] }
+
+/** Something to do on a schedule, for the baby or for mom; shared by the household. */
+export interface Todo {
+  id: string
+  title: string
+  who: 'baby' | 'mom'
+  repeat: Repeat
+  /** Times of day it's due ("08:00"), each ticked on its own; none means once that day, any time. */
+  times: string[]
 }

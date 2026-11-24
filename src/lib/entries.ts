@@ -62,9 +62,11 @@ export const TYPES: Record<EntryType, TypeConfig> = {
     ],
   },
   note: { label: 'Note', emoji: '📝', color: 'var(--t-note)' },
+  todo: { label: 'To-do', emoji: '✅', color: 'var(--t-note)' },
 }
 
-export const TYPE_ORDER = Object.keys(TYPES) as EntryType[]
+/** The types that make up the log; to-do ticks live on the To-do screen instead. */
+export const TYPE_ORDER = (Object.keys(TYPES) as EntryType[]).filter((type) => type !== 'todo')
 
 export const SIDES: Option[] = [
   { value: 'left', label: 'Left' },

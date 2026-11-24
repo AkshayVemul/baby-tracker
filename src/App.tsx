@@ -5,6 +5,7 @@ import { HistoryView } from './components/HistoryView'
 import { Icon, type IconName } from './components/Icon'
 import { SettingsView } from './components/SettingsView'
 import { TodayView } from './components/TodayView'
+import { TodoView } from './components/TodoView'
 import { useBackToClose, useHashRoute } from './hooks/useHashRoute'
 import { useEntries } from './hooks/useEntries'
 import { useNow } from './hooks/useNow'
@@ -13,15 +14,17 @@ import { isRunning, mergeFeeds, newEntry } from './lib/entries'
 import { loadSettings, newId, saveSettings } from './lib/storage'
 import { applyTheme, followSystemTheme } from './lib/theme'
 import { formatAge, MINUTE } from './lib/time'
-import type { Actions, Entry, Settings } from './types'
+import type { Slot } from './lib/todos'
+import type { Actions, Entry, Settings, Todo } from './types'
 
-type Tab = 'today' | 'history' | 'charts' | 'settings'
+type Tab = 'today' | 'history' | 'todo' | 'charts' | 'settings'
 
-const ROUTES: readonly Tab[] = ['today', 'history', 'charts', 'settings']
+const ROUTES: readonly Tab[] = ['today', 'history', 'todo', 'charts', 'settings']
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'today', label: 'Today', icon: 'home' },
   { id: 'history', label: 'History', icon: 'list' },
+  { id: 'todo', label: 'To-do', icon: 'todo' },
   { id: 'charts', label: 'Charts', icon: 'chart' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ]
@@ -48,7 +51,10 @@ export default function App({ household, email, onHousehold }: Props) {
   const notify = useCallback((message: string) => setToast({ id: Date.now(), message }), [])
   const { entries, pending, online, save, drop, replaceAll, add, refresh } = useEntries(householdId, onHousehold, notify)
   const [refreshing, setRefreshing] = useState(false)
-  const list = entries ?? []
+  // To-do ticks are entries too (so they sync like the rest), but they belong on the To-do screen, not in the log.
+  const list = (entries ?? []).filter((e) => e.type !== 'todo')
+  const ticks = (entries ?? []).filter((e) => e.type === 'todo')
+  const todos = household.todos ?? []
   // Tick every second while a timer runs; otherwise often enough for "5m ago" labels.
   const now = useNow(list.some(isRunning) ? 1000 : 30_000)
 
@@ -121,6 +127,18 @@ export default function App({ household, email, onHousehold }: Props) {
     }
   }
 
+  const changeTodos = (next: Todo[]) => {
+    onHousehold({ ...household, todos: next })
+    updateHousehold(householdId, { todos: next }).catch((e: Error) => setToast({ id: Date.now(), message: `Couldn’t save: ${e.message}` }))
+  }
+
+  /** Ticks a to-do, or unticks it (both phones may have ticked the same one while offline). */
+  const toggleTodo = (slot: Slot) => {
+    const done = ticks.filter((tick) => tick.kind === slot.key)
+    if (done.length > 0) for (const tick of done) drop(tick.id)
+    else save({ id: newId(), type: 'todo', kind: slot.key, start: Date.now() })
+  }
+
   // A saved feed can be merged into a feed that ended up to 30 minutes before it (e.g. a bottle top-up logged
   // separately after a breastfeed).
   const mergeTarget =
@@ -181,8 +199,11 @@ export default function App({ household, email, onHousehold }: Props) {
           </div>
         ) : (
           <>
-            {tab === 'today' && <TodayView entries={list} settings={settings} now={now} actions={actions} />}
+            {tab === 'today' && <TodayView entries={list} todos={todos} ticks={ticks} settings={settings} now={now} actions={actions} />}
             {tab === 'history' && <HistoryView entries={list} settings={settings} now={now} actions={actions} />}
+            {tab === 'todo' && (
+              <TodoView todos={todos} ticks={ticks} settings={settings} now={now} onToggle={toggleTodo} onTodos={changeTodos} />
+            )}
             {tab === 'charts' && <ChartsView entries={list} settings={settings} now={now} />}
           </>
         )}

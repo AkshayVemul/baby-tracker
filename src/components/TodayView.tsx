@@ -1,18 +1,24 @@
 import { useState, type ReactNode } from 'react'
+import { alarmLink } from '../lib/alarm'
 import { describe, sidesText } from '../lib/describe'
 import { durationMs, finish, hasBreak, isRunning, kindLabel, pause, resume, sortNewestFirst, subtractBreak, switchSide, continueFeed, currentPart, TYPE_ORDER, TYPES } from '../lib/entries'
 import { sleepGaps } from '../lib/gaps'
+import { isIos } from '../lib/install'
 import { nextFeedDue } from '../lib/nextFeed'
 import { dailyStats, latest } from '../lib/stats'
 import { formatAgo, formatClock, formatDuration, formatTime, MINUTE, startOfDay } from '../lib/time'
 import { formatMeasure } from '../lib/units'
-import type { Actions, Entry, Settings } from '../types'
+import { todaysSlots } from '../lib/todos'
+import type { Actions, Entry, Settings, Todo } from '../types'
 import { EntryList } from './EntryList'
 import { Icon } from './Icon'
 import { InstallHint } from './InstallHelp'
 
 interface Props {
   entries: Entry[]
+  todos: Todo[]
+  /** To-do ticks, for the to-do summary. */
+  ticks: Entry[]
   settings: Settings
   now: number
   actions: Actions
@@ -23,7 +29,7 @@ type PumpSide = Side | 'both'
 
 const sideLabel = (side?: string) => (side === 'right' ? 'Right' : side === 'left' ? 'Left' : 'Both')
 
-export function TodayView({ entries, settings, now, actions }: Props) {
+export function TodayView({ entries, todos, ticks, settings, now, actions }: Props) {
   const [activityKind, setActivityKind] = useState('tummy')
 
   const running = (type: Entry['type']) => entries.find((e) => e.type === type && isRunning(e))
@@ -140,12 +146,19 @@ export function TodayView({ entries, settings, now, actions }: Props) {
                 <a href="#/settings">Change</a>
               </span>
             </span>
+            {isIos() && next.due > now && (
+              <a className="small alarm-link" href={alarmLink(next.due)}>
+                <Icon name="alarm" size={14} /> Set an alarm for {formatTime(next.due, settings.timeFormat)}
+              </a>
+            )}
           </div>
           <button className="btn primary" onClick={() => startFeed(nextSide)} aria-label={`Start breastfeeding on the ${nextSide}`}>
             <Icon name="play" /> Start feed
           </button>
         </section>
       )}
+
+      <TodoSummary todos={todos} ticks={ticks} settings={settings} now={now} />
 
       <section className="timers" aria-label="Timers">
         <TimerCard
@@ -419,5 +432,34 @@ function TakeOff({ entry, now, onTakeOff }: { entry: Entry; now: number; onTakeO
         ))}
       </div>
     </div>
+  )
+}
+
+/** How today's to-dos are going, with the most pressing one left; opens the To-do screen. */
+function TodoSummary({ todos, ticks, settings, now }: { todos: Todo[]; ticks: Entry[]; settings: Settings; now: number }) {
+  const slots = todaysSlots(todos, ticks, now)
+  if (slots.length === 0) return null
+  const done = slots.filter((s) => s.done).length
+  // Timed ones in time order, then the any-time ones.
+  const left = slots.filter((s) => !s.done).sort((a, b) => (a.slot.at ?? Infinity) - (b.slot.at ?? Infinity))
+  const first = left[0]?.slot
+  const when = first?.at === undefined ? '' : ` at ${formatTime(first.at, settings.timeFormat)}`
+  const status = !first
+    ? 'All done for today'
+    : first.at !== undefined && first.at < now
+      ? `Late: ${first.todo.title}${when}`
+      : `Next: ${first.todo.title}${when}`
+  return (
+    <a className={first?.at !== undefined && first.at < now ? 'card todo-summary late' : 'card todo-summary'} href="#/todo">
+      <span className="badge" style={{ background: TYPES.note.color }} aria-hidden="true">
+        ✅
+      </span>
+      <span className="grow">
+        <strong>
+          To-dos · {done} of {slots.length} done
+        </strong>
+        <span className="small">{status}</span>
+      </span>
+    </a>
   )
 }

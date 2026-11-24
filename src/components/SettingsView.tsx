@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
+import { ALARM_SHORTCUT, alarmLink } from '../lib/alarm'
 import type { Household } from '../lib/db'
-import { useInstallOption } from '../lib/install'
+import { isIos, useInstallOption } from '../lib/install'
 import { sampleEntries } from '../lib/sample'
 import { clearLocalEntries, clearOfflineData, loadLocalEntries } from '../lib/storage'
 import { supabase } from '../lib/supabase'
@@ -247,6 +248,33 @@ export function SettingsView({ entries, settings, household, email, now, onSetti
           </label>
         </div>
       </section>
+
+      {isIos() && (
+        <section className="card form" aria-labelledby="alarm">
+          <h3 id="alarm">Feed alarm</h3>
+          <p className="muted small">
+            “Set an alarm” on the Next feed card puts an alarm in the Clock app through a Shortcut, since a web app can’t set
+            alarms itself. Make the Shortcut once:
+          </p>
+          <ol className="steps small">
+            <li>Open the Shortcuts app and tap + to make a new shortcut.</li>
+            <li>
+              Name it exactly <strong>{ALARM_SHORTCUT}</strong>.
+            </li>
+            <li>
+              Add the action <strong>Get Dates from Input</strong>, so the time this app sends becomes a time.
+            </li>
+            <li>
+              Add the Clock action <strong>Create Alarm</strong>, tap its time and pick <strong>Dates</strong>; label it “Feed”.
+            </li>
+            <li>Tap Done.</li>
+          </ol>
+          <p className="small">
+            <a href={alarmLink(now + 2 * MINUTE)}>Try it: set an alarm for 2 minutes from now</a>
+          </p>
+          <p className="muted small">The first time, iOS asks to open Shortcuts and to let it use the Clock; allow both.</p>
+        </section>
+      )}
 
       <section className="card form" aria-labelledby="data">
         <h3 id="data">Data</h3>
