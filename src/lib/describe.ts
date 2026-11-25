@@ -7,7 +7,6 @@ import { formatMeasure } from './units'
 export function describe(entry: Entry, settings: Settings, now: number): string {
   const parts: (string | undefined)[] = []
   const side = SIDES.find((s) => s.value === entry.side)?.label
-  const milk = MILKS.find((m) => m.value === entry.milk)?.label.toLowerCase()
 
   switch (entry.type) {
     case 'sleep':
@@ -16,22 +15,15 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
       parts.push(entry.end === undefined ? 'in progress' : formatDuration(durationMs(entry, now)))
       break
     case 'feed':
-      parts.push(kindLabel(entry))
-      if (entry.kind === 'breast') {
-        // A bottle top-up after breastfeeding brings its amount along.
-        const topUp = [entry.amountMl !== undefined && formatMeasure('volume', entry.amountMl, settings), entry.amountMl !== undefined && milk]
-          .filter(Boolean)
-          .join(' ')
-        parts.push(...sidesAndTiming(entry, side, now), topUp || undefined)
+      if (entry.segments?.length) {
+        // A feed in parts (sides, bottles) is described by its parts: each one's time, then what was in the bottles.
+        parts.push(...sidesAndTiming(entry, side, now), bottlesText(entry, settings))
+      } else if (entry.kind === 'breast') {
+        parts.push(kindLabel(entry), ...sidesAndTiming(entry, side, now), bottlesText(entry, settings))
       } else if (entry.kind === 'bottle') {
-        parts.push(
-          [entry.amountMl !== undefined && formatMeasure('volume', entry.amountMl, settings), milk]
-            .filter(Boolean)
-            .join(' ') || undefined,
-          timing(entry, now),
-        )
+        parts.push(kindLabel(entry), bottlesText(entry, settings), timing(entry, now))
       } else {
-        parts.push(entry.food, timing(entry, now))
+        parts.push(kindLabel(entry), entry.food, timing(entry, now))
       }
       break
     case 'diaper':
@@ -54,6 +46,20 @@ export function describe(entry: Entry, settings: Settings, now: number): string 
       break
   }
   return parts.filter(Boolean).join(' · ')
+}
+
+/**
+ * What was in the bottles: "60 ml expressed milk + 30 ml formula" when the bottle parts have their own amounts,
+ * otherwise the feed's amount and milk, e.g. "120 ml formula".
+ */
+function bottlesText(entry: Entry, settings: Settings): string | undefined {
+  const label = (amountMl: number | undefined, milk: Entry['milk']) =>
+    [amountMl !== undefined && formatMeasure('volume', amountMl, settings), amountMl !== undefined && MILKS.find((m) => m.value === milk)?.label.toLowerCase()]
+      .filter(Boolean)
+      .join(' ') || undefined
+  const bottles = entry.segments?.filter((part) => part.side === 'bottle' && part.amountMl !== undefined) ?? []
+  if (bottles.length > 0) return bottles.map((part) => label(part.amountMl, part.milk)).join(' + ')
+  return label(entry.amountMl, entry.milk)
 }
 
 /**

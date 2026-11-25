@@ -75,7 +75,7 @@ export const SIDES: Option[] = [
 ]
 
 export const MILKS: Option[] = [
-  { value: 'breast', label: 'Breast milk' },
+  { value: 'breast', label: 'Expressed milk' },
   { value: 'formula', label: 'Formula' },
 ]
 
@@ -145,15 +145,25 @@ export function finish(entry: Entry, now: number): Entry {
 }
 
 /**
- * The same session carrying on with the other side from `now`: one feed with a Left and a Right time, not two
- * entries. The first switch turns the session so far into its first segment.
+ * The same session carrying on with another part from `now`: the other side, the bottle, or back to the breast
+ * from the bottle (or another bottle, say formula after expressed milk). One entry with a time per part, not
+ * several entries; the first switch turns the session so far into its first part. `extra` is the new part's
+ * milk, for a bottle.
  */
-export function switchSide(entry: Entry, now: number): Entry {
+export function switchPart(entry: Entry, to: Segment['side'], now: number, extra?: Pick<Segment, 'milk'>): Entry {
   const current = resume(entry, now)
-  const from = current.side === 'right' ? 'right' : 'left'
-  const to = from === 'left' ? 'right' : 'left'
-  const segments = current.segments ?? [{ side: from, start: current.start, pausedMs: current.pausedMs }]
-  return { ...current, side: to, segments: [...withLastSegment(segments, (last) => ({ ...last, end: now })), { side: to, start: now }] }
+  const segments = current.segments ?? partsOf(current)
+  const next: Segment = { side: to, start: now, ...extra }
+  return {
+    ...current,
+    side: to === 'bottle' ? current.side : to,
+    segments: [...withLastSegment(segments, (last) => ({ ...last, end: now })), next],
+  }
+}
+
+/** The other side of a breastfeed or pump: Left after Right, Right after Left. */
+export function switchSide(entry: Entry, now: number): Entry {
+  return switchPart(entry, entry.side === 'left' ? 'right' : 'left', now)
 }
 
 /** Time on one side, minus its breaks; the side in use counts up to now (or the pause). */
@@ -171,14 +181,16 @@ export function currentPart(entry: Entry): Segment['side'] {
 /** The whole entry as its parts: its segments, or one part covering all of it. */
 function partsOf(entry: Entry): Segment[] {
   if (entry.segments?.length) return entry.segments
-  return [{ side: currentPart(entry), start: entry.start, end: entry.end, pausedMs: entry.pausedMs }]
+  const part: Segment = { side: currentPart(entry), start: entry.start, end: entry.end, pausedMs: entry.pausedMs }
+  if (part.side === 'bottle') Object.assign(part, { amountMl: entry.amountMl, milk: entry.milk })
+  return [JSON.parse(JSON.stringify(part)) as Segment]
 }
 
 /**
  * A feed that finished a moment ago carrying on at `now` with another part: the other side, or a bottle top-up.
  * The minutes in between count as a break, so the feed's total is still the time actually feeding.
  */
-export function continueFeed(entry: Entry, part: Segment['side'], now: number): Entry {
+export function continueFeed(entry: Entry, part: Segment['side'], now: number, extra?: Pick<Segment, 'milk'>): Entry {
   const gap = Math.max(0, now - (entry.end ?? now))
   const open: Entry = { ...entry }
   delete open.end
@@ -186,7 +198,7 @@ export function continueFeed(entry: Entry, part: Segment['side'], now: number): 
     ...open,
     side: part === 'bottle' ? entry.side : part,
     pausedMs: (entry.pausedMs ?? 0) + gap,
-    segments: [...partsOf(entry), { side: part, start: now }],
+    segments: [...partsOf(entry), { side: part, start: now, ...extra }],
   }
 }
 
@@ -220,6 +232,7 @@ export function partsProblem(parts: Segment[]): string | undefined {
     if (Number.isNaN(part.start) || Number.isNaN(part.end)) return 'Pick a start and an end time for every part.'
     if (part.end == null && i < parts.length - 1) return 'Only the last part can be left without an end time.'
     if (part.end != null && part.end < part.start) return `Part ${i + 1} ends before it starts.`
+    if (part.amountMl !== undefined && !(part.amountMl > 0)) return `Part ${i + 1}’s amount must be a positive number.`
     const previousEnd = parts[i - 1]?.end
     if (previousEnd != null && part.start < previousEnd) return `Part ${i + 1} starts before part ${i} ends.`
   }
@@ -238,6 +251,7 @@ export function withParts(entry: Entry, parts: Segment[]): Entry {
   if (entry.type === 'feed') {
     next.kind = first.side === 'bottle' ? 'bottle' : 'breast'
     next.side = parts.findLast((p) => p.side !== 'bottle')?.side as Entry['side']
+    Object.assign(next, bottleTotals(parts))
   } else {
     next.side = last.side as Entry['side']
   }
@@ -250,6 +264,20 @@ export function withParts(entry: Entry, parts: Segment[]): Entry {
     next.pausedMs = parts.reduce((sum, part) => sum + (part.pausedMs ?? 0), 0) + gaps
   }
   return JSON.parse(JSON.stringify({ ...next, pausedMs: next.pausedMs || undefined })) as Entry
+}
+
+/**
+ * A feed's bottle amount and milk from its bottle parts: the amounts added up, and the milk when they all had the
+ * same (none when expressed milk and formula were mixed).
+ */
+export function bottleTotals(parts: Segment[]): Pick<Entry, 'amountMl' | 'milk'> {
+  const bottles = parts.filter((p) => p.side === 'bottle')
+  const amounts = bottles.filter((p) => p.amountMl !== undefined)
+  const milks = new Set(bottles.map((p) => p.milk).filter(Boolean))
+  return {
+    amountMl: amounts.length ? amounts.reduce((sum, p) => sum + p.amountMl!, 0) : undefined,
+    milk: milks.size === 1 ? [...milks][0] : undefined,
+  }
 }
 
 /** Time at the breast: the breast parts of a mixed feed, or all of a plain breastfeed. */

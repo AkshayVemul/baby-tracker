@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { alarmLink } from '../lib/alarm'
 import { describe, sidesText } from '../lib/describe'
-import { durationMs, finish, hasBreak, isRunning, kindLabel, pause, resume, sortNewestFirst, subtractBreak, switchSide, continueFeed, currentPart, TYPE_ORDER, TYPES } from '../lib/entries'
+import { durationMs, finish, hasBreak, isRunning, kindLabel, pause, resume, sortNewestFirst, subtractBreak, switchPart, switchSide, continueFeed, currentPart, TYPE_ORDER, TYPES } from '../lib/entries'
 import { sleepGaps } from '../lib/gaps'
 import { isIos } from '../lib/install'
 import { nextFeedDue } from '../lib/nextFeed'
@@ -39,13 +39,15 @@ export function TodayView({ entries, todos, ticks, settings, now, actions }: Pro
   const pump = running('pump')
 
   const lastFeed = latest(entries, (e) => e.type === 'feed')
-  const lastBreast = latest(entries, (e) => e.type === 'feed' && e.kind === 'breast' && (e.side === 'left' || e.side === 'right'))
+  // Any feed with a breast part, including one that started with the bottle.
+  const lastBreast = latest(entries, (e) => e.type === 'feed' && (e.side === 'left' || e.side === 'right'))
   const nextSide: Side = lastBreast?.side === 'left' ? 'right' : 'left'
   const lastPump = latest(entries, (e) => e.type === 'pump' && e.side !== undefined)
   const nextPumpSide: PumpSide =
     lastPump?.side === 'left' ? 'right' : lastPump?.side === 'right' ? 'left' : 'both'
   // For suggesting an amount and milk: the last bottle that has an amount (not one that's running or just stopped).
   const lastBottle = latest(entries, (e) => e.type === 'feed' && e.kind === 'bottle' && e.amountMl !== undefined)
+  const lastMilk = latest(entries, (e) => e.type === 'feed' && e.milk !== undefined)?.milk
   const lastDiaper = latest(entries, (e) => e.type === 'diaper')
   const lastSleep = latest(entries, (e) => e.type === 'sleep' && e.end !== undefined)
   // The session that ended most recently, within 15 minutes, can still have break time taken off from its card.
@@ -73,27 +75,36 @@ export function TodayView({ entries, todos, ticks, settings, now, actions }: Pro
   const carryOn = (part: 'left' | 'right' | 'bottle') => {
     if (!continuable) return false
     const label = part === 'bottle' ? 'Bottle top-up' : `${sideLabel(part)} side`
-    actions.change(continueFeed(continuable, part, Date.now()), continuable, `${label} added to the ${formatTime(continuable.start, settings.timeFormat)} feed`)
+    const extra = part === 'bottle' ? { milk: lastMilk } : undefined
+    actions.change(continueFeed(continuable, part, Date.now(), extra), continuable, `${label} added to the ${formatTime(continuable.start, settings.timeFormat)} feed`)
     return true
   }
   const startBottle = () => {
     if (carryOn('bottle')) return
-    actions.log({ type: 'feed', kind: 'bottle', milk: lastBottle?.milk, start: Date.now() }, 'Bottle timer started')
+    actions.log({ type: 'feed', kind: 'bottle', milk: lastMilk, start: Date.now() }, 'Bottle timer started')
   }
-  /** Stopping while the bottle is the part in use opens the feed for the amount, suggesting the last bottle's. */
+  /**
+   * Stopping a feed with a bottle still missing its amount opens the feed to fill it in. A plain bottle feed gets
+   * the last bottle's amount suggested; with several bottles each one is filled in on its own.
+   */
   const stopFeed = (entry: Entry) => {
     const done = finish(entry, Date.now())
     actions.save(done)
-    if (currentPart(done) === 'bottle') {
-      actions.edit({ ...done, amountMl: done.amountMl ?? lastBottle?.amountMl, milk: done.milk ?? lastBottle?.milk })
+    if (!done.segments) {
+      if (done.kind === 'bottle') actions.edit({ ...done, amountMl: done.amountMl ?? lastBottle?.amountMl, milk: done.milk ?? lastMilk })
+    } else if (done.segments.some((part) => part.side === 'bottle' && part.amountMl === undefined)) {
+      actions.edit(done)
     }
   }
   const startFeed = (side: Side) => {
     if (carryOn(side)) return
     actions.log({ type: 'feed', kind: 'breast', side, start: Date.now() }, `Feeding on the ${side}`)
   }
-  /** Same feed or pump session, other side: one entry with a time per side. */
+  /** Same pump session, other side: one entry with a time per side. */
   const changeSide = (entry: Entry) => actions.save(switchSide(entry, Date.now()))
+  /** Same feed, another part: either side, the bottle, or a new bottle (say formula after expressed milk). */
+  const changePart = (entry: Entry, to: 'left' | 'right' | 'bottle') =>
+    actions.save(switchPart(entry, to, Date.now(), to === 'bottle' ? { milk: lastMilk } : undefined))
   /** " · Left 5m + Right 2m" on a running session that has switched sides. */
   const sidesSoFar = (entry: Entry) => {
     const sides = sidesText(entry, now)
@@ -199,17 +210,30 @@ export function TodayView({ entries, todos, ticks, settings, now, actions }: Pro
           onEdit={actions.edit}
         >
           {feed ? (
-            <div className="row">
-              <PauseButton entry={feed} onToggle={togglePause} />
-              {currentPart(feed) !== 'bottle' && feed.side !== 'both' && (
-                <button className="btn grow" onClick={() => changeSide(feed)} aria-label={`Switch to ${feed.side === 'left' ? 'right' : 'left'} side`}>
-                  <Icon name="swap" /> {feed.side === 'left' ? 'Right' : 'Left'}
+            <>
+              <div className="row">
+                <PauseButton entry={feed} onToggle={togglePause} />
+                <button className="btn primary grow" onClick={() => stopFeed(feed)}>
+                  <Icon name="stop" /> Stop
                 </button>
-              )}
-              <button className="btn primary grow" onClick={() => stopFeed(feed)}>
-                <Icon name="stop" /> Stop
-              </button>
-            </div>
+              </div>
+              <div className="row switch-row" role="group" aria-label="Switch to">
+                <span className="muted small">Switch to</span>
+                {(['left', 'right', 'bottle'] as const)
+                  .filter((part) => part === 'bottle' || part !== currentPart(feed))
+                  .map((part) => (
+                    <button
+                      key={part}
+                      className="btn small grow"
+                      onClick={() => changePart(feed, part)}
+                      aria-label={part === 'bottle' && currentPart(feed) === 'bottle' ? 'Switch to a new bottle' : `Switch to ${part === 'bottle' ? 'the bottle' : `the ${part} side`}`}
+                    >
+                      <Icon name="swap" />{' '}
+                      {part === 'bottle' ? (currentPart(feed) === 'bottle' ? 'New bottle' : 'Bottle') : sideLabel(part)}
+                    </button>
+                  ))}
+              </div>
+            </>
           ) : (
             <>
               {finishedFeed && <TakeOff entry={finishedFeed} now={now} onTakeOff={takeOff} />}

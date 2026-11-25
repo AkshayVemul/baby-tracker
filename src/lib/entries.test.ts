@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry } from '../types'
-import { adjustBreaks, breastTimeMs, continueFeed, currentPart, durationMs, finish, isRunning, mergeFeeds, partsProblem, pause, resume, sideTimes, subtractBreak, switchSide, withParts } from './entries'
+import { adjustBreaks, bottleTotals, breastTimeMs, continueFeed, currentPart, durationMs, finish, isRunning, mergeFeeds, partsProblem, pause, resume, sideTimes, subtractBreak, switchPart, switchSide, withParts } from './entries'
 import { MINUTE } from './time'
 
 const t0 = new Date(2026, 10, 18, 9).getTime()
@@ -148,5 +148,33 @@ describe('editing parts by hand', () => {
     expect(partsProblem([{ side: 'left', start: t0 }, right])).toBe('Only the last part can be left without an end time.')
     expect(partsProblem([left, { side: 'right', start: t0 + 12 * MINUTE }])).toBeUndefined()
     expect(partsProblem([left, { ...right, end: Number.NaN }])).toBe('Pick a start and an end time for every part.')
+  })
+})
+
+describe('switching parts while feeding', () => {
+  it('goes from the bottle to the breast and back to another bottle, in one feed', () => {
+    const bottle: Entry = { id: 'b', type: 'feed', kind: 'bottle', milk: 'breast', start: t0 }
+    const toLeft = switchPart(bottle, 'left', t0 + 10 * MINUTE)
+    expect(toLeft).toMatchObject({ kind: 'bottle', side: 'left' })
+    expect(toLeft.segments).toEqual([
+      { side: 'bottle', start: t0, end: t0 + 10 * MINUTE, milk: 'breast' },
+      { side: 'left', start: t0 + 10 * MINUTE },
+    ])
+    const formula = switchPart(toLeft, 'bottle', t0 + 20 * MINUTE, { milk: 'formula' })
+    expect(formula.side).toBe('left')
+    expect(formula.segments?.at(-1)).toEqual({ side: 'bottle', start: t0 + 20 * MINUTE, milk: 'formula' })
+    expect(sideTimes(finish(formula, t0 + 25 * MINUTE), t0)).toEqual([
+      { side: 'bottle', ms: 15 * MINUTE },
+      { side: 'left', ms: 10 * MINUTE },
+    ])
+  })
+
+  it('adds up the bottles and keeps the milk only when they all had the same', () => {
+    const expressed = { side: 'bottle' as const, start: t0, end: t0 + 5 * MINUTE, amountMl: 60, milk: 'breast' as const }
+    const formula = { side: 'bottle' as const, start: t0 + 5 * MINUTE, end: t0 + 9 * MINUTE, amountMl: 30, milk: 'formula' as const }
+    expect(bottleTotals([expressed, formula])).toEqual({ amountMl: 90, milk: undefined })
+    expect(bottleTotals([expressed, { ...expressed, amountMl: 40 }])).toEqual({ amountMl: 100, milk: 'breast' })
+    expect(withParts({ id: 'a', type: 'feed', start: 0 }, [expressed, formula])).toMatchObject({ kind: 'bottle', amountMl: 90 })
+    expect(partsProblem([expressed, { ...formula, amountMl: Number.NaN }])).toBe('Part 2’s amount must be a positive number.')
   })
 })

@@ -1324,6 +1324,26 @@ code {
   border-radius: 12px;
 }
 
+/* A bottle part's amount and milk, under its times. */
+.part-bottle {
+  order: 4;
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.part-bottle input {
+  width: 6em;
+}
+
+/* Switching a running feed to another part: a second row under Pause and Stop. */
+.switch-row {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
 /* Side buttons, length and remove on the first line; the times below. */
 .part-length {
   order: 1;

@@ -29,6 +29,9 @@ interface PartDraft {
   end: string
   /** The part as saved, so untouched times keep their seconds and its pauses carry over. */
   original?: Segment
+  /** A bottle part's amount as typed, in the user's volume unit, and its milk. */
+  amount: string
+  milk?: Segment['milk']
 }
 
 const FEED_PARTS: Option[] = [
@@ -38,14 +41,32 @@ const FEED_PARTS: Option[] = [
 ]
 const PUMP_PARTS = FEED_PARTS.slice(0, 2)
 
-function toDraft(segment: Segment): PartDraft {
-  return { side: segment.side, start: toTimeInput(segment.start), end: segment.end == null ? '' : toTimeInput(segment.end), original: segment }
+function toDraft(segment: Segment, settings: Settings): PartDraft {
+  return {
+    side: segment.side,
+    start: toTimeInput(segment.start),
+    end: segment.end == null ? '' : toTimeInput(segment.end),
+    original: segment,
+    amount: segment.amountMl === undefined ? '' : String(units.volume.toDisplay(segment.amountMl, settings)),
+    milk: segment.milk,
+  }
 }
 
 /** The part to add after `previous`: the other side (after a bottle, the left), for 5 minutes from where it ended. */
 function nextDraft(previous: Segment): PartDraft {
   const from = previous.end ?? previous.start
-  return { side: previous.side === 'left' ? 'right' : 'left', start: toTimeInput(from), end: toTimeInput(from + 5 * MINUTE) }
+  return { side: previous.side === 'left' ? 'right' : 'left', start: toTimeInput(from), end: toTimeInput(from + 5 * MINUTE), amount: '' }
+}
+
+/**
+ * A saved feed's parts for editing. Feeds merged before bottles had their own amounts keep the amount on the feed;
+ * it goes to the last bottle so it isn't lost.
+ */
+function initialParts(entry: Entry): Segment[] {
+  const segments = entry.segments ?? []
+  const bottle = segments.findLastIndex((part) => part.side === 'bottle')
+  if (bottle < 0 || segments.some((part) => part.amountMl !== undefined) || entry.amountMl === undefined) return segments
+  return segments.map((part, i) => (i === bottle ? { ...part, amountMl: entry.amountMl, milk: part.milk ?? entry.milk } : part))
 }
 
 const METRIC_FIELD: Record<MeasureField, keyof Entry> = {
@@ -83,7 +104,7 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
   const [error, setError] = useState('')
   // A feed or pump in parts (sides and bottle top-ups), each with its own times; null while it's a single part.
   const [parts, setParts] = useState<PartDraft[] | null>(() =>
-    initial.segments && initial.segments.length > 1 ? initial.segments.map(toDraft) : null,
+    initial.segments && initial.segments.length > 1 ? initialParts(initial).map((part) => toDraft(part, settings)) : null,
   )
 
   useEffect(() => {
@@ -94,13 +115,12 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
   const timed = isTimed({ type, kind })
   const partsAllowed = (type === 'feed' && (kind === 'breast' || kind === 'bottle')) || type === 'pump'
   const activeParts = partsAllowed ? parts : null
-  // A breastfeed with a bottle top-up as one of its parts takes the bottle's amount and milk too.
-  const hasBottlePart = activeParts?.some((part) => part.side === 'bottle') === true
   const show = {
     kind: !(activeParts && type === 'feed'),
     side: ((type === 'feed' && kind === 'breast') || type === 'pump') && !activeParts,
-    amount: (type === 'feed' && (kind === 'bottle' || hasBottlePart)) || type === 'pump',
-    milk: type === 'feed' && (kind === 'bottle' || hasBottlePart),
+    // A feed in parts has an amount and milk per bottle instead.
+    amount: (type === 'feed' && kind === 'bottle' && !activeParts) || type === 'pump',
+    milk: type === 'feed' && kind === 'bottle' && !activeParts,
     food: type === 'feed' && kind === 'solids',
     growth: type === 'growth',
     temp: type === 'health' && kind === 'temperature',
@@ -143,6 +163,11 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
       if (end !== undefined) part.end = end
       const paused = end === undefined ? original?.pausedMs : Math.min(original?.pausedMs ?? 0, Math.max(0, end - start))
       if (paused) part.pausedMs = paused
+      if (draft.side === 'bottle') {
+        const amount = draft.amount.trim()
+        if (amount) part.amountMl = Math.round(units.volume.fromDisplay(Number(amount.replace(',', '.')), settings))
+        if (draft.milk) part.milk = draft.milk
+      }
       return part
     })
   }
@@ -173,7 +198,9 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
       end: endMs,
     }
     if (breakMs) first.pausedMs = breakMs
-    updateParts([toDraft(first), nextDraft(first)])
+    // A bottle feed's amount and milk become its first bottle's.
+    const firstDraft = { ...toDraft(first, settings), ...(first.side === 'bottle' && { amount: measures.amount, milk }) }
+    updateParts([firstDraft, nextDraft(first)])
   }
 
   /** Removing all but one part makes it a plain feed or pump again, with that part's times. */
@@ -191,6 +218,11 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
     setBreaks(only.pausedMs ? String(Math.round(only.pausedMs / MINUTE)) : '')
     if (type === 'feed') setKind(only.side === 'bottle' ? 'bottle' : 'breast')
     if (only.side !== 'bottle') setSide(only.side)
+    else {
+      // The last bottle's amount and milk become the feed's.
+      setMeasures({ ...measures, amount: rest[0].amount })
+      setMilk(rest[0].milk)
+    }
   }
 
   /** Moving the start past the end pushes the end to 5 minutes after it, so the end never needs scrolling back. */
@@ -368,6 +400,30 @@ export function EntryForm({ initial, isNew, settings, onSave, onDelete, onClose,
                     <button type="button" className="icon-btn" aria-label={`Remove part ${i + 1}`} onClick={() => removePart(i)}>
                       <Icon name="trash" />
                     </button>
+                    {part.side === 'bottle' && (
+                      <span className="part-bottle">
+                        <input
+                          inputMode="decimal"
+                          aria-label={`Part ${i + 1} amount (${units.volume.label(settings)})`}
+                          placeholder={units.volume.label(settings)}
+                          value={part.amount}
+                          onChange={(e) => changePart(i, { amount: e.target.value })}
+                        />
+                        <span className="chips" role="group" aria-label={`Part ${i + 1} milk`}>
+                          {MILKS.map((o) => (
+                            <button
+                              key={o.value}
+                              type="button"
+                              className={o.value === part.milk ? 'chip active' : 'chip'}
+                              aria-pressed={o.value === part.milk}
+                              onClick={() => changePart(i, { milk: o.value as Segment['milk'] })}
+                            >
+                              {o.label}
+                            </button>
+                          ))}
+                        </span>
+                      </span>
+                    )}
                   </li>
                 )
               })}

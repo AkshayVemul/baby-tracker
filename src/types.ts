@@ -8,6 +8,9 @@ export interface Segment {
   end?: number | null
   /** Break time taken off this side. */
   pausedMs?: number
+  /** A bottle part's own amount and milk, so expressed milk and formula in one feed are told apart. */
+  amountMl?: number
+  milk?: 'breast' | 'formula'
 }
 
 /** `todo` entries are ticks on the to-do list (see lib/todos.ts), kept out of the log. */
